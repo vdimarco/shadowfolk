@@ -63,12 +63,10 @@ Add `?demo=1` to the URL to see a desktop demo with simulated hands.
 
 Live build: https://shadowfolk.vercel.app
 
-```bash
-npx vercel login
-```
+The Vercel project `shadowfolk` is connected to this GitHub repo. Each push to `main` deploys to production. Each push to another branch gets a preview URL. Build settings are in `vercel.json`. The install skips package scripts, because the web build does not need the native metavr binary.
+
+To deploy by hand from a signed-in machine:
 
 ```bash
 npm run deploy
 ```
-
-`npm run deploy` builds `dist/` and publishes it to the `shadowfolk` Vercel project. WebXR needs HTTPS.
