@@ -497,7 +497,6 @@ export class GameSystem extends createSystem({}) {
     g.font = 'italic 600 60px Georgia, serif';
     g.fillText('Shadow Book', 512, 84);
     const cols = 3;
-    const cw = 280, ch = 220;
     const buf = new SegmentBuffer();
     const m = new Uint8Array(GRID_W * GRID_H);
     const all: Level[] = [...LEVELS];
@@ -508,9 +507,14 @@ export class GameSystem extends createSystem({}) {
     off.width = GRID_W;
     off.height = GRID_H;
     const og = off.getContext('2d')!;
-    all.slice(0, 9).forEach((lv, i) => {
-      const x0 = 512 + ((i % cols) - 1) * (cw + 30) - cw / 2;
-      const y0 = 120 + Math.floor(i / cols) * (ch + 10);
+    const shown = all.slice(0, 9);
+    // fit every row between the title and the footer
+    const rows = Math.ceil(shown.length / cols);
+    const ch = Math.min(230, 520 / rows);
+    const cw = Math.min(280, ((ch - 40) * GRID_W) / GRID_H);
+    shown.forEach((lv, i) => {
+      const x0 = 512 + ((i % cols) - 1) * 310 - cw / 2;
+      const y0 = 112 + Math.floor(i / cols) * ch;
       const found = this.progress.found.includes(lv.id);
       buf.clear();
       lv.hands.forEach((h, k) => projectHand(poseToJoints(h), buf, k * SEGS_PER_HAND));
@@ -525,9 +529,9 @@ export class GameSystem extends createSystem({}) {
       og.clearRect(0, 0, GRID_W, GRID_H);
       og.putImageData(img, 0, 0);
       g.drawImage(off, x0, y0, cw, (cw * GRID_H) / GRID_W);
-      g.font = '28px Georgia, serif';
+      g.font = `${Math.round(Math.min(28, ch / 7))}px Georgia, serif`;
       g.globalAlpha = found ? 0.9 : 0.4;
-      g.fillText(found ? lv.name : '? ? ?', x0 + cw / 2, y0 + ch - 6);
+      g.fillText(found ? lv.name : '? ? ?', x0 + cw / 2, y0 + (cw * GRID_H) / GRID_W + Math.min(30, ch / 6));
       g.globalAlpha = 1;
     });
     g.font = '26px Georgia, serif';

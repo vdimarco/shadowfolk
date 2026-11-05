@@ -79,7 +79,7 @@ const REST: Record<'left' | 'right', NPose> = {
 
 /** A pointing hand, fingers down, with its index tip placed at `tip`. */
 function pokePose(tip: V3): NPose {
-  const p: HandPose = { hand: 'right', pos: [0, 0, 0], rot: [-160, 0, 0], thumb: { out: 0.1, opp: 0.8, curl: 0.8 }, index: 0, middle: 1, ring: 1, pinky: 1 };
+  const p: HandPose = { hand: 'right', pos: [0, 0, 0], rot: [-160, 180, 0], thumb: { out: 0.1, opp: 0.8, curl: 0.8 }, index: 0, middle: 1, ring: 1, pinky: 1 };
   const j = poseToJoints(p);
   const off: V3 = [j[27] - j[0], j[28] - j[1], j[29] - j[2]];
   return norm({ ...p, pos: [tip[0] - off[0], tip[1] - off[1], tip[2] - off[2]] });
@@ -130,7 +130,7 @@ await page.evaluate(() => {
       font: italic 500 clamp(18px, 2.4vw, 46px) Georgia, serif; color: #f6e4c2;
       text-shadow: 0 2px 12px rgba(0,0,0,.9); pointer-events: none; }
     #sf-card { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; background: rgba(6,4,6,.82); color: #f6e4c2;
+      align-items: center; justify-content: center; background: rgba(6,4,6,.93); color: #f6e4c2;
       font-family: Georgia, serif; text-align: center; pointer-events: none; }
     #sf-card h1 { font: italic 600 clamp(48px, 7vw, 140px) Georgia, serif; margin: 0 0 .2em; letter-spacing: .01em; }
     #sf-card p { font-size: clamp(18px, 2vw, 40px); margin: .25em 0; opacity: .9; }
@@ -188,6 +188,8 @@ async function step() {
   const t = frame / FPS;
   if (info.state !== lastState) {
     if (info.state === 'wake') events.push({ t, type: 'chime' });
+    // the intro chimes when it sees the hand, 2.2 s before the first level opens
+    if (lastState === 'intro' && info.state === 'level') events.push({ t: t - 2.2, type: 'chime' });
     lastState = info.state;
   }
   if (info.level !== lastLabel) lastLabel = info.level;
