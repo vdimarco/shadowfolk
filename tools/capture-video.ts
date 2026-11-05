@@ -73,8 +73,8 @@ const shift = (n: NPose, d: V3, r: V3 = [0, 0, 0]): NPose => ({
 });
 
 const REST: Record<'left' | 'right', NPose> = {
-  right: norm({ hand: 'right', pos: [0.16, -0.62, -0.34], rot: [-50, 0, 10], thumb: { out: 0.3, curl: 0.3 }, index: 0.3, middle: 0.35, ring: 0.4, pinky: 0.45 }),
-  left: norm({ hand: 'left', pos: [-0.16, -0.62, -0.34], rot: [-50, 0, -10], thumb: { out: 0.3, curl: 0.3 }, index: 0.3, middle: 0.35, ring: 0.4, pinky: 0.45 }),
+  right: norm({ hand: 'right', pos: [0.3, -0.56, -0.24], rot: [-50, 0, 10], thumb: { out: 0.3, curl: 0.3 }, index: 0.3, middle: 0.35, ring: 0.4, pinky: 0.45 }),
+  left: norm({ hand: 'left', pos: [-0.3, -0.56, -0.24], rot: [-50, 0, -10], thumb: { out: 0.3, curl: 0.3 }, index: 0.3, middle: 0.35, ring: 0.4, pinky: 0.45 }),
 };
 
 /** A pointing hand, fingers down, with its index tip placed at `tip`. */
@@ -115,13 +115,20 @@ await page.addInitScript(() => {
     for (const cb of list) cb(now);
   };
 });
+const ONLY_POKE = !!process.env.ONLY_POKE;
+if (ONLY_POKE) {
+  // test mode: start at the end of the story and run the button section only
+  await page.addInitScript((d: string) => {
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: 6, found: ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', d], gentle: false, dailyDay: -1, streak: 1 }));
+  }, dailyLevel(dayNumber()).id);
+}
 await page.goto(url + (url.includes('?') ? '&' : '?') + 'capture=1');
 for (let i = 0; i < 600 && !(await page.evaluate(() => !!(window as any).__shadowfolk)); i++) {
   await page.evaluate(() => (window as any).__advance(16));
   await page.waitForTimeout(20);
 }
-await page.evaluate(() => {
-  (window as any).__shadowfolk.reset();
+await page.evaluate((keep: boolean) => {
+  if (!keep) (window as any).__shadowfolk.reset();
   const css = document.createElement('style');
   css.textContent = `
     #sf-band { position: fixed; left: 0; right: 0; bottom: 0; height: 22%; z-index: 19; pointer-events: none;
@@ -145,7 +152,7 @@ await page.evaluate(() => {
   band.id = 'sf-band';
   band.style.opacity = '0';
   document.body.append(band, cap, card);
-});
+}, ONLY_POKE);
 
 // ------------------------------------------------------------ timeline
 
@@ -188,6 +195,7 @@ async function step() {
   const t = frame / FPS;
   if (info.state !== lastState) {
     if (info.state === 'wake') events.push({ t, type: 'chime' });
+    if (info.state === 'book' || lastState === 'book') console.log(`state ${lastState} -> ${info.state} at ${t.toFixed(2)}s`);
     // the intro chimes when it sees the hand, 2.2 s before the first level opens
     if (lastState === 'intro' && info.state === 'level') events.push({ t: t - 2.2, type: 'chime' });
     lastState = info.state;
@@ -235,7 +243,10 @@ async function until(pred: (s: { state: string; level: string }) => boolean, max
 
 const TITLE = `<h1>Shadowfolk</h1><p>A hands-only shadow puppet game for Meta Quest</p>`;
 
+if (ONLY_POKE) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+
 try {
+  if (ONLY_POKE) throw new Error('skip-story');
   // A. title card over the sleeping paper
   card = { html: TITLE, alpha: 0 };
   await hold(4.2, (k) => (card.alpha = k < 0.15 ? k / 0.15 : k > 0.8 ? (1 - k) / 0.2 : 1));
@@ -289,21 +300,34 @@ try {
   const daily = dailyLevel(dayNumber());
   await playLevel(daily.id, daily.hands, 'Then a new shadow wakes every day. Keep your streak.');
 
+} catch (e) {
+  if ((e as Error).message !== 'skip-story') {
+    console.log('FAIL', (e as Error).message);
+    errors.push((e as Error).message);
+  }
+}
+
+try {
   // D. poke buttons on the tray: Book, then Gentle
   say('Every button is a fingertip poke. No controllers.');
   await move([REST.right], 0.3, (k) => (pitch = -38 * ease(k)));
   const above = (x: number): V3 => [x, -0.47, -0.365];
   const press = (x: number): V3 => [x, -0.533, -0.365];
-  await move([pokePose(above(BTN.book))], 1.2);
+  // turn into a pointing hand beside the tray, then travel high above the buttons
+  await move([pokePose([0.3, -0.36, -0.3])], 0.9);
+  await move([pokePose([BTN.book, -0.4, -0.365])], 0.7);
+  await move([pokePose(above(BTN.book))], 0.35);
   await move([pokePose(press(BTN.book))], 0.35);
   events.push({ t: frame / FPS, type: 'tap' });
   await move([pokePose(above(BTN.book))], 0.35);
-  await move([pokePose(above(BTN.gentle))], 0.6);
+  await move([pokePose([BTN.gentle, -0.44, -0.365])], 0.5);
+  await move([pokePose(above(BTN.gentle))], 0.2);
   say('Gentle mode: easier matching and high-contrast paper.');
   await move([pokePose(press(BTN.gentle))], 0.35);
   events.push({ t: frame / FPS, type: 'tap' });
   await move([pokePose(above(BTN.gentle))], 0.35);
-  await move([REST.right], 1.0, (k) => (pitch = -38 * (1 - ease(k))));
+  await move([pokePose([0.3, -0.36, -0.3])], 0.5);
+  await move([REST.right], 0.8, (k) => (pitch = -38 * (1 - ease(k))));
   say('The Shadow Book keeps every creature you wake.');
   await hold(3.0);
   // turn gentle mode back off without showing it, so the end card sits on warm paper
