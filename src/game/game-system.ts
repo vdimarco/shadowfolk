@@ -15,6 +15,7 @@ import {
   SEGS_PER_HAND,
 } from './silhouette.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
+import { HandViz } from './hand-viz.js';
 import { Theater } from './theater.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale';
@@ -28,6 +29,8 @@ interface DebugApi {
   state(): { state: State; level: string; score: number; found: string[]; hands: number };
   press(id: string): void;
   reset(): void;
+  /** Desktop only: tilt the view down (negative degrees) to show the button tray. */
+  setCameraPitch(deg: number): void;
   /** Current target poses, shifted in position (meters) to test the matcher. */
   targetPoses(dx: number, dy: number): HandPose[];
 }
@@ -40,6 +43,8 @@ declare global {
 
 export class GameSystem extends createSystem({}) {
   private theater!: Theater;
+  private handViz = new HandViz();
+  private vizHands: (Float32Array | null)[] = [null, null];
   private sfx = new Sfx();
   private progress!: Progress;
 
@@ -77,6 +82,7 @@ export class GameSystem extends createSystem({}) {
     this.progress = loadProgress();
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
+    this.theater.root.add(this.handViz.root);
     this.demo = new URLSearchParams(location.search).has('demo');
 
     this.cleanupFuncs.push(
@@ -387,6 +393,10 @@ export class GameSystem extends createSystem({}) {
 
     this.readHands();
     this.checkButtons(dt);
+    const simulated = !!this.simPoses || this.demo;
+    this.vizHands[0] = simulated && this.present.right ? this.joints.right : null;
+    this.vizHands[1] = simulated && this.present.left ? this.joints.left : null;
+    this.handViz.update(this.vizHands);
 
     // live shadow from tracked hands
     this.live.clear();
@@ -542,10 +552,11 @@ export class GameSystem extends createSystem({}) {
       this.sfx.start();
       if (this.world.xrEnabled) this.world.launchXR();
     });
+    if (new URLSearchParams(location.search).has('capture')) btn.hidden = true;
     document.body.appendChild(btn);
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((vs) => {
-        btn.style.display = vs === VisibilityState.NonImmersive ? 'block' : 'none';
+        btn.style.display = vs === VisibilityState.NonImmersive && !btn.hidden ? 'block' : 'none';
       }),
     );
     const onKey = (e: KeyboardEvent) => {
@@ -570,6 +581,9 @@ export class GameSystem extends createSystem({}) {
         hands: (this.present.left ? 1 : 0) + (this.present.right ? 1 : 0),
       }),
       press: (id) => this.press(id),
+      setCameraPitch: (deg) => {
+        this.world.camera.rotation.set((deg * Math.PI) / 180, 0, 0, 'YXZ');
+      },
       targetPoses: (dx, dy) =>
         this.level.hands.map((h) => ({ ...h, pos: [h.pos[0] + dx, h.pos[1] + dy, h.pos[2]] as [number, number, number] })),
       reset: () => {

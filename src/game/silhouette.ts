@@ -21,7 +21,7 @@ export const SEGS_PER_HAND = 28;
 export const MAX_SEGS = SEGS_PER_HAND * 2;
 
 /** [a, b, rA, rB] capsule list per hand, joint indices plus radii (meters). */
-const CAPSULES: [number, number, number, number][] = [
+export const CAPSULES: [number, number, number, number][] = [
   // palm fan
   [0, 6, 0.021, 0.014],
   [0, 11, 0.022, 0.014],
