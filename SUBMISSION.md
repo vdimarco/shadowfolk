@@ -64,7 +64,7 @@ TODO: name, email, role for each member.
 
 ## Links
 
-- Playable build: TODO (hosted HTTPS link)
+- Playable build: https://shadowfolk.vercel.app
 - Video: TODO (YouTube or Vimeo, public, under 3 minutes)
 
 ## Video plan (under 3 minutes, best part first)

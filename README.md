@@ -6,7 +6,7 @@ Built with the Immersive Web SDK (IWSDK) for WebXR. Entry for the Meta VR Start 
 
 ## Play
 
-1. Open the hosted link in the Meta Quest Browser.
+1. Open https://shadowfolk.vercel.app in the Meta Quest Browser.
 2. Pinch "Enter Shadowfolk".
 3. Sit back and lift a hand into the light.
 
@@ -61,4 +61,14 @@ Add `?demo=1` to the URL to see a desktop demo with simulated hands.
 
 ## Deploy
 
-`npm run build` writes a static site to `dist/`. Host it on any HTTPS static host (GitHub Pages, Vercel). WebXR needs HTTPS.
+Live build: https://shadowfolk.vercel.app
+
+```bash
+npx vercel login
+```
+
+```bash
+npm run deploy
+```
+
+`npm run deploy` builds `dist/` and publishes it to the `shadowfolk` Vercel project. WebXR needs HTTPS.
