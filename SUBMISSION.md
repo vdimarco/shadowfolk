@@ -65,7 +65,7 @@ TODO: name, email, role for each member.
 ## Links
 
 - Playable build: https://shadowfolk.vercel.app
-- Video: TODO (YouTube or Vimeo, public, under 3 minutes)
+- Video: TODO (paste the public YouTube link)
 
 ## Video plan (under 3 minutes, best part first)
 
@@ -77,3 +77,26 @@ TODO: name, email, role for each member.
 6. 2:30 to 2:50: Close on the paper. "A new shadow wakes each day."
 
 Record on a Quest 3 with the system recorder (Meta button, Camera, Record video), or in the IWER emulator in a desktop browser.
+
+## YouTube upload text
+
+Title:
+
+Shadowfolk: a hands-only shadow puppet game for Meta Quest (Meta VR Start 2026)
+
+Description:
+
+Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a moth, a hare, a crocodile, a dog, a bird and a deer. After the story, a new shadow wakes every day.
+
+- No controllers. Every action uses hand tracking.
+- Seated play, within a two-foot radius.
+- Gentle mode: easier matching and high-contrast paper. Either hand works.
+
+Play in the Meta Quest Browser: https://shadowfolk.vercel.app
+Source: https://github.com/vdimarco/shadowfolk
+
+Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competition 2026. This video was captured in a desktop browser with simulated hand poses.
+
+Visibility: Public. Category: Gaming.
+
+To rebuild the video: run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` and `npx tsx tools/soundtrack.ts <frames-dir>/events.json soundtrack.wav`, and join them with ffmpeg.
