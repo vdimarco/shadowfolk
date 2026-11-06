@@ -46,6 +46,8 @@ Ten story shadows in two chapters teach the classic shapes, from one open hand t
 
 ### What is next
 
+Already in: a free play mode after the story, where any shadow from your Book wakes its creature.
+
 - More story chapters with new creatures and two-player shadow plays.
 - Shared daily shadow board for friends.
 - Meta VR Glasses support with a pinch-only mode.
@@ -56,7 +58,7 @@ Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. Th
 
 ## Target launch date
 
-TODO: for example, December 2026 on the web, then the Meta Horizon Store as a PWA.
+TODO (your call). The web build is already live and installable as a Quest app (manifest, icons, auto-enter VR). A suggestion: open web release at judging time, then the Meta Horizon Store as a packaged web app in early 2027.
 
 ## Team
 

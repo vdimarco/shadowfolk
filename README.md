@@ -16,7 +16,9 @@ No controllers. Every action uses hands:
 - Press a button: poke one of the three brass buttons on the tray below you with a fingertip.
   - **Book**: shows the creatures you found.
   - **Gentle**: lowers the match level and raises the contrast.
-  - **Skip / Next / Daily**: moves on.
+  - **Skip / Next / Daily / Free play**: moves on. After the daily shadow it opens free play, where any shadow from your Book wakes its creature.
+
+To install it as an app, open the link in the Quest Browser and choose Install. The installed app goes straight into VR when you open it.
 
 ## How it works
 
