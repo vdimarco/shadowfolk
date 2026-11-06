@@ -266,7 +266,11 @@ try {
     crocodile: 'Make the shape anywhere on the paper, at any size.',
     dog: 'A soft hum rises as you get close.',
     bird: 'Some shadows need both hands.',
-    deer: 'Six story shadows teach the shapes.',
+    deer: 'Every target is a real hand pose.',
+    turkey: 'Chapter two brings new shapes.',
+    bat: 'Turn the bird upside down, and it hangs like a bat.',
+    owl: 'When a creature wakes, its eye opens.',
+    spider: 'Ten story shadows teach the shapes.',
   };
   const offsets: Record<string, { d: V3; r: V3 }> = {
     moth: { d: [0.03, 0.0, 0.0], r: [0, 0, 0] },

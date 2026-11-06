@@ -5,7 +5,7 @@ import { GRID_H, GRID_W, rasterize, SegmentBuffer, projectHand, SEGS_PER_HAND } 
 import { writeGray } from './png.js';
 
 const out = process.argv[2] ?? 'levels.png';
-const cols = 3;
+const cols = 4;
 const rows = Math.ceil(LEVELS.length / cols);
 const W = GRID_W * cols, H = GRID_H * rows;
 const sheet = new Uint8Array(W * H).fill(255);

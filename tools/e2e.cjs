@@ -22,7 +22,8 @@ const { chromium } = require('playwright');
     await p.evaluate(() => window.__shadowfolk.setPoses([{ hand: 'right', pos: [0.08, -0.24, -0.42] }]));
     await waitState((s) => s.state === 'level', 60000);
     console.log('intro -> level ok');
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 20; i++) {
+      if ((await st()).level.startsWith('daily-')) break;
       const s0 = await st();
       // move the target pose a little to prove the matcher ignores position
       await p.evaluate(() => window.__shadowfolk.setPoses(window.__shadowfolk.targetPoses(0.03, 0.02)));
@@ -35,7 +36,7 @@ const { chromium } = require('playwright');
     }
     const end = await st();
     console.log('end', JSON.stringify(end));
-    if (end.found.length !== 6) throw new Error('expected 6 found');
+    if (end.found.length !== 10) throw new Error('expected 10 found');
     if (end.state !== 'level' || !end.level.startsWith('daily-')) throw new Error('expected daily level after story');
     await p.evaluate(() => window.__shadowfolk.setPoses(null));
     await p.waitForTimeout(2500);
@@ -48,7 +49,7 @@ const { chromium } = require('playwright');
     await p.waitForFunction(() => !!window.__shadowfolk, null, { timeout: 30000 });
     const after = await st();
     console.log('after reload', JSON.stringify(after));
-    if (after.found.length !== 6) throw new Error('progress lost on reload');
+    if (after.found.length !== 10) throw new Error('progress lost on reload');
   } catch (e) { console.log('FAIL', e.message); fail = true; }
   if (errs.length) console.log('errors:\n' + errs.slice(0, 10).join('\n'));
   await b.close();

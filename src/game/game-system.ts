@@ -555,24 +555,25 @@ export class GameSystem extends createSystem({}) {
     g.textAlign = 'center';
     g.font = 'italic 600 60px Georgia, serif';
     g.fillText('Shadow Book', 512, 84);
-    const cols = 3;
     const buf = new SegmentBuffer();
     const m = new Uint8Array(GRID_W * GRID_H);
     const all: Level[] = [...LEVELS];
     const today = dailyLevel(dayNumber());
     if (this.progress.found.includes(today.id)) all.push(today);
+    const cols = all.length > 9 ? 4 : 3;
     const img = g.createImageData(GRID_W, GRID_H);
     const off = document.createElement('canvas');
     off.width = GRID_W;
     off.height = GRID_H;
     const og = off.getContext('2d')!;
-    const shown = all.slice(0, 9);
+    const shown = all.slice(0, 12);
     // fit every row between the title and the footer
     const rows = Math.ceil(shown.length / cols);
     const ch = Math.min(230, 520 / rows);
-    const cw = Math.min(280, ((ch - 40) * GRID_W) / GRID_H);
+    const colW = cols === 4 ? 240 : 310;
+    const cw = Math.min(cols === 4 ? 220 : 280, ((ch - 40) * GRID_W) / GRID_H);
     shown.forEach((lv, i) => {
-      const x0 = 512 + ((i % cols) - 1) * 310 - cw / 2;
+      const x0 = 512 + ((i % cols) - (cols - 1) / 2) * colW - cw / 2;
       const y0 = 112 + Math.floor(i / cols) * ch;
       const found = this.progress.found.includes(lv.id);
       buf.clear();
@@ -721,6 +722,16 @@ function animateCreature(
       ox = e * 0.1;
       oy = Math.sin(e * 1.5) * 0.02;
       rot = Math.sin(e * 1.2) * 0.08;
+      break;
+    case 'scuttle':
+      // quick little steps up and to the side
+      ox = e * 0.2 + Math.sin(e * 34) * 0.005;
+      oy = e * 0.09;
+      rot = Math.sin(e * 17) * 0.05;
+      break;
+    case 'sway':
+      ox = e * 0.12;
+      rot = Math.sin(e * 2.4) * 0.12;
       break;
   }
   const s = from.s;
