@@ -59,6 +59,7 @@ export function dailyLevel(day: number): Level {
     wake: `${name.replace('The ', 'The ')} wakes, and slips away until tomorrow.`,
     motion: pick(MOTIONS),
     threshold: two ? 0.6 : 0.64,
+    eye: { joint: 6, dy: 0.012 },
     hands,
   };
 }

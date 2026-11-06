@@ -91,6 +91,14 @@ function project(x: number, y: number, z: number, r: number, out: Float32Array):
   return true;
 }
 
+/** Project one theater-space point onto the wall. Returns null if it casts no shadow. */
+export function projectPoint(x: number, y: number, z: number, out: [number, number]): [number, number] | null {
+  if (!project(x, y, z, 0, tmp)) return null;
+  out[0] = tmp[0];
+  out[1] = tmp[1];
+  return out;
+}
+
 export interface ProjectOptions {
   /** Include the forearm capsule (visual only; the matcher skips it). */
   forearm?: boolean;

@@ -13,6 +13,8 @@ export interface Level {
   hands: HandPose[];
   /** Score needed in normal mode. Gentle mode subtracts 0.1. */
   threshold: number;
+  /** Where the creature's eye opens when it wakes: a joint of hands[hand], plus a wall offset in meters. */
+  eye?: { hand?: number; joint: number; dx?: number; dy?: number };
 }
 
 const R = (p: Omit<HandPose, 'hand'>): HandPose => ({ hand: 'right', ...p });
@@ -26,6 +28,7 @@ export const LEVELS: Level[] = [
     wake: 'The moth shakes off the dust and flutters to the lamp.',
     motion: 'flutter',
     threshold: 0.66,
+    eye: { joint: 11, dx: 0.0, dy: -0.02 },
     hands: [
       R({
         pos: [0.08, -0.24, -0.42],
@@ -44,6 +47,7 @@ export const LEVELS: Level[] = [
     wake: 'The hare twitches its ears and hops away.',
     motion: 'hop',
     threshold: 0.7,
+    eye: { joint: 11, dx: 0.0, dy: -0.03 },
     hands: [
       R({
         pos: [0.08, -0.26, -0.42],
@@ -62,6 +66,7 @@ export const LEVELS: Level[] = [
     wake: 'Snap! The crocodile slides off down the river.',
     motion: 'snap',
     threshold: 0.7,
+    eye: { joint: 6, dx: 0.045, dy: 0.055 },
     hands: [
       R({
         pos: [0.12, -0.24, -0.42],
@@ -81,6 +86,7 @@ export const LEVELS: Level[] = [
     wake: 'Woof! The dog wags and trots off to find a stick.',
     motion: 'bark',
     threshold: 0.7,
+    eye: { joint: 6, dx: -0.015, dy: 0.012 },
     hands: [
       R({
         pos: [0.0, -0.24, -0.42],
@@ -100,6 +106,7 @@ export const LEVELS: Level[] = [
     wake: 'The bird beats its wings and flies into the night.',
     motion: 'fly',
     threshold: 0.62,
+    eye: { hand: 0, joint: 3, dx: 0.0, dy: -0.01 },
     hands: [
       R({
         pos: [-0.035, -0.26, -0.42],
@@ -128,6 +135,7 @@ export const LEVELS: Level[] = [
     wake: 'The deer lifts its head, listens, and steps into the trees.',
     motion: 'drift',
     threshold: 0.62,
+    eye: { hand: 0, joint: 2, dx: -0.025, dy: 0.0 },
     hands: [
       R({
         pos: [0.035, -0.27, -0.42],

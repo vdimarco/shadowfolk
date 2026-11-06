@@ -8,6 +8,7 @@ import {
   Group,
   InstancedMesh,
   Matrix4,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Quaternion,
   SphereGeometry,
@@ -29,15 +30,36 @@ export class HandViz {
   private d = new Vector3();
   private s = new Vector3();
   private mid = new Vector3();
+  private pre: InstancedMesh[] = [];
 
-  constructor() {
-    const mat = new MeshStandardMaterial({ color: new Color(0.6, 0.4, 0.3), roughness: 0.6 });
+  readonly material: MeshStandardMaterial | MeshBasicMaterial;
+
+  constructor(material?: MeshStandardMaterial | MeshBasicMaterial) {
+    const mat = material ?? new MeshStandardMaterial({ color: new Color(0.6, 0.4, 0.3), roughness: 0.6 });
+    this.material = mat;
     this.bones = new InstancedMesh(new CylinderGeometry(1, 1, 1, 14, 1, true), mat, N * 2);
     this.caps = new InstancedMesh(new SphereGeometry(1, 14, 10), mat, N * 4);
     this.bones.frustumCulled = false;
     this.caps.frustumCulled = false;
     this.root.add(this.bones, this.caps);
-    this.root.name = 'Simulated Hands';
+    if (material?.transparent) {
+      // Depth pre-pass: see-through hands show only their front surface,
+      // so the overlapping spheres and bones do not stack into blotches.
+      // Both passes run in the transparent queue, after solid objects such as
+      // the player's own hands, so the guide never hides a hand inside it.
+      const depth = new MeshBasicMaterial({ colorWrite: false, transparent: true, depthWrite: true });
+      this.bones.renderOrder = 11;
+      this.caps.renderOrder = 11;
+      for (const m of [this.bones, this.caps]) {
+        const pre = new InstancedMesh(m.geometry, depth, m.count);
+        pre.instanceMatrix = m.instanceMatrix;
+        pre.frustumCulled = false;
+        pre.renderOrder = 10;
+        this.pre.push(pre);
+        this.root.add(pre);
+      }
+    }
+    this.root.name = material ? 'Guide Hands' : 'Simulated Hands';
     this.root.visible = false;
   }
 
@@ -69,6 +91,10 @@ export class HandViz {
     }
     this.bones.count = bi;
     this.caps.count = ci;
+    if (this.pre.length) {
+      this.pre[0].count = bi;
+      this.pre[1].count = ci;
+    }
     this.bones.instanceMatrix.needsUpdate = true;
     this.caps.instanceMatrix.needsUpdate = true;
     this.root.visible = bi > 0;

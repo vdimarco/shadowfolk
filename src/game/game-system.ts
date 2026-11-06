@@ -1,4 +1,4 @@
-import { createSystem, Matrix4, Vector3, VisibilityState, type WebGLRenderer } from '@iwsdk/core';
+import { AdditiveBlending, Color, createSystem, Matrix4, MeshBasicMaterial, Vector3, VisibilityState, type WebGLRenderer } from '@iwsdk/core';
 import { Sfx } from './audio.js';
 import { dailyLevel, dayNumber } from './daily.js';
 import { type HandPose, JOINT_COUNT, JOINT_NAMES, poseToJoints } from './hand-model.js';
@@ -10,6 +10,7 @@ import {
   gridToWall,
   Matcher,
   projectHand,
+  projectPoint,
   rasterize,
   SegmentBuffer,
   SEGS_PER_HAND,
@@ -44,6 +45,23 @@ declare global {
 export class GameSystem extends createSystem({}) {
   private theater!: Theater;
   private handViz = new HandViz();
+  /** Faint golden hand that shows the pose, placed where the player's hand should go. */
+  private guide = new HandViz(
+    new MeshBasicMaterial({
+      color: new Color(1.0, 0.6, 0.16),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false,
+      blending: AdditiveBlending,
+    }),
+  );
+  private guideAlpha = 0;
+  private targetJoints: Float32Array[] = [];
+  private mirrorJoints: Float32Array[] = [];
+  private guideHands: (Float32Array | null)[] = [null, null];
+  private eyeBase: [number, number] | null = null;
+  private eyeTmp: [number, number] = [0, 0];
   private vizHands: (Float32Array | null)[] = [null, null];
   private sfx = new Sfx();
   private progress!: Progress;
@@ -82,7 +100,7 @@ export class GameSystem extends createSystem({}) {
     this.progress = loadProgress();
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
-    this.theater.root.add(this.handViz.root);
+    this.theater.root.add(this.handViz.root, this.guide.root);
     this.demo = new URLSearchParams(location.search).has('demo');
 
     this.cleanupFuncs.push(
@@ -203,7 +221,17 @@ export class GameSystem extends createSystem({}) {
 
   private loadTarget() {
     this.targetSegs.clear();
-    this.level.hands.forEach((h, k) => projectHand(poseToJoints(h), this.targetSegs, k * SEGS_PER_HAND));
+    this.targetJoints = this.level.hands.map((h) => poseToJoints(h));
+    this.mirrorJoints = this.level.hands.map((h) => poseToJoints(mirrorPose(h)));
+    this.targetJoints.forEach((j, k) => projectHand(j, this.targetSegs, k * SEGS_PER_HAND));
+    this.guideAlpha = 0;
+    this.eyeBase = null;
+    const eye = this.level.eye;
+    const ej = eye ? this.targetJoints[eye.hand ?? 0] : undefined;
+    if (eye && ej) {
+      const p = projectPoint(ej[eye.joint * 3], ej[eye.joint * 3 + 1], ej[eye.joint * 3 + 2], this.eyeTmp);
+      if (p) this.eyeBase = [p[0] + (eye.dx ?? 0), p[1] + (eye.dy ?? 0)];
+    }
     rasterize(this.targetSegs, this.tmask);
     this.matcher.setTarget(this.tmask);
     this.theater.wallMat.uniforms.uTargetAlpha.value = 0;
@@ -410,6 +438,9 @@ export class GameSystem extends createSystem({}) {
 
     const area = this.present.left || this.present.right ? rasterize(this.live, this.mask) : 0;
 
+    this.updateGuide(dt);
+    u.uEye.value.w = 0;
+
     switch (this.state) {
       case 'intro': {
         if (this.introDone) {
@@ -451,7 +482,16 @@ export class GameSystem extends createSystem({}) {
         const k = Math.min(1, this.stateTime / WAKE_TIME);
         u.uLiveAlpha.value = Math.max(0.15, 1 - this.stateTime * 1.5);
         u.uTargetAlpha.value = k < 0.8 ? 1 : 1 - (k - 0.8) / 0.2;
-        animateCreature(this.targetSegs, this.creature, this.level.motion, this.stateTime, this.wakeFrom, this.wakeCenter);
+        const eyeOut = animateCreature(
+          this.targetSegs, this.creature, this.level.motion, this.stateTime, this.wakeFrom, this.wakeCenter, this.eyeBase, this.eyeTmp,
+        );
+        if (eyeOut) {
+          // the eye opens after the creature starts to move, and blinks twice
+          const t = this.stateTime;
+          const open = Math.min(1, Math.max(0, (t - 0.35) / 0.4));
+          const blink = (t > 1.7 && t < 1.82) || (t > 3.1 && t < 3.22) ? 0 : 1;
+          u.uEye.value.set(eyeOut[0], eyeOut[1], 0.017 * this.wakeFrom.s, open * blink * u.uTargetAlpha.value);
+        }
         this.theater.target.render(renderer, this.creature);
         if (this.stateTime > WAKE_TIME + 0.4) {
           u.uLiveAlpha.value = 1;
@@ -465,6 +505,25 @@ export class GameSystem extends createSystem({}) {
   }
 
   private wakeCenter: [number, number] = [0, 0];
+
+  /** Show the guide hand when the player seems stuck; hide it as soon as they are close. */
+  private updateGuide(dt: number) {
+    let want = 0;
+    if (this.state === 'level') {
+      const thr = this.threshold();
+      const wait = this.progress.gentle ? 1.5 : 6;
+      if (this.stateTime > wait && this.hold === 0 && this.score < thr - 0.04) want = 1;
+    }
+    this.guideAlpha += (want - this.guideAlpha) * Math.min(1, dt * (want ? 1.2 : 4));
+    const show = this.guideAlpha > 0.01 && this.targetJoints.length > 0;
+    // a lone left hand on a right-hand shape: mirror the guide for that hand
+    const mirror = this.level.hands.length === 1 && this.level.hands[0].hand === 'right' && this.present.left && !this.present.right;
+    const src = mirror ? this.mirrorJoints : this.targetJoints;
+    this.guideHands[0] = show ? src[0] ?? null : null;
+    this.guideHands[1] = show ? src[1] ?? null : null;
+    this.guide.update(this.guideHands);
+    this.guide.material.opacity = 0.55 * this.guideAlpha;
+  }
   private introDone = false;
   private wasImmersive = false;
 
@@ -622,7 +681,9 @@ function animateCreature(
   t: number,
   from: { x: number; y: number; s: number; mirror: boolean },
   center: [number, number],
-) {
+  eyeIn: [number, number] | null,
+  eyeOut: [number, number],
+): [number, number] | null {
   const [cx, cy] = center;
   let ox = 0, oy = 0, sx = 1, sy = 1, rot = 0;
   const e = Math.max(0, t - 0.5); // brief pause before it moves
@@ -667,6 +728,12 @@ function animateCreature(
   const c = Math.cos(rot), sn = Math.sin(rot);
   const a = src.data, d = dst.data;
   d.set(a);
+  if (eyeIn) {
+    const x = (eyeIn[0] - cx) * mir * sx;
+    const y = (eyeIn[1] - cy) * sy;
+    eyeOut[0] = cx + from.x + (x * c - y * sn) * s + ox;
+    eyeOut[1] = cy + from.y + (x * sn + y * c) * s + oy;
+  }
   for (let i = 0; i < a.length; i += 4) {
     if ((i / 4) % 2 === 0 && a[i + 2] <= 0) {
       // unused segment: skip both endpoints
@@ -684,4 +751,11 @@ function animateCreature(
     d[i + 2] = a[i + 2] * s;
     d[i + 3] = a[i + 3];
   }
+  return eyeIn ? eyeOut : null;
+}
+
+/** The same pose made with the other hand, mirrored left to right. */
+function mirrorPose(h: HandPose): HandPose {
+  const r = h.rot ?? [0, 0, 0];
+  return { ...h, hand: h.hand === 'right' ? 'left' : 'right', pos: [-h.pos[0], h.pos[1], h.pos[2]], rot: [r[0], -r[1], -r[2]] };
 }

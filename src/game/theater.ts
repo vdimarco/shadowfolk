@@ -18,6 +18,7 @@ import {
   ShaderMaterial,
   SRGBColorSpace,
   Vector2,
+  Vector4,
   WebGLRenderTarget,
   type WebGLRenderer,
 } from '@iwsdk/core';
@@ -118,6 +119,7 @@ uniform float uThreshold;
 uniform float uHold;
 uniform float uMeter;
 uniform float uContrast;     // 0 = warm paper, 1 = high contrast
+uniform vec4 uEye;           // creature eye: x, y, radius, alpha
 varying vec2 vUv;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -157,6 +159,15 @@ void main() {
   vec3 gold = mix(vec3(1.0, 0.72, 0.3), vec3(0.95, 0.55, 0.0), uContrast);
   float pulse = 0.75 + 0.25 * sin(uTime * 2.4);
   col = mix(col, gold * (1.1 + uHold), guide * pulse * (0.55 + 0.45 * (1.0 - live)));
+
+  // a glowing eye on the awake creature
+  if (uEye.w > 0.0) {
+    float de = length((p - uEye.xy) * vec2(1.0, 1.5));
+    float core = 1.0 - smoothstep(uEye.z * 0.45, uEye.z, de);
+    float halo = exp(-de * de / (uEye.z * uEye.z * 6.0));
+    col = mix(col, vec3(1.0, 0.86, 0.5) * 1.5, core * uEye.w);
+    col += vec3(1.0, 0.55, 0.18) * halo * 0.45 * uEye.w;
+  }
 
   // closeness meter along the bottom of the paper
   if (uMeter > 0.0) {
@@ -225,6 +236,7 @@ export class Theater {
         uHold: { value: 0 },
         uMeter: { value: 0 },
         uContrast: { value: 0 },
+        uEye: { value: new Vector4(0, 0, 0.01, 0) },
       },
     });
     const wall = new Mesh(new PlaneGeometry(WALL_W, WALL_H), this.wallMat);
