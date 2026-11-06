@@ -1,0 +1,17 @@
+{
+  "name": "Shadowfolk",
+  "short_name": "Shadowfolk",
+  "description": "A seated, hands-only shadow puppet game. Make the shape and the shadow comes alive.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#06040a",
+  "theme_color": "#1a0d07",
+  "categories": ["games"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
