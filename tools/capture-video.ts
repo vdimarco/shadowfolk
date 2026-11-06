@@ -334,9 +334,23 @@ try {
   await move([REST.right], 0.8, (k) => (pitch = -38 * (1 - ease(k))));
   say('The Shadow Book keeps every creature you wake.');
   await hold(3.0);
-  // turn gentle mode back off without showing it, so the end card sits on warm paper
-  await page.evaluate(() => (window as any).__shadowfolk.press('gentle'));
-  await page.evaluate(() => (window as any).__shadowfolk.press('book'));
+  // turn gentle mode back off without showing it, close the book, open free play
+  await page.evaluate(() => {
+    const sf = (window as any).__shadowfolk;
+    sf.press('gentle');
+    sf.press('book');
+    sf.press('next');
+  });
+
+  // F. free play: any shadow from the book wakes its creature
+  say('Free play: make any shadow you know, anywhere.');
+  const dog = LEVELS.find((l) => l.id === 'dog')!.hands.map(norm);
+  await move([shift(dog[0], [0.1, 0.05, 0.03], [0, 0, 25])], 1.6);
+  await move([shift(dog[0], [0.1, 0.05, 0.03])], 1.0);
+  await until((s) => s.state === 'wake', 6);
+  await hold(0.6);
+  await move([REST.right], 1.3);
+  await until((s) => s.state === 'free', 6);
 
   // E. end card
   say('');

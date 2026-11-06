@@ -13,13 +13,14 @@ import {
   projectPoint,
   rasterize,
   SegmentBuffer,
+  shapeStats,
   SEGS_PER_HAND,
 } from './silhouette.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
 import { Theater } from './theater.js';
 
-type State = 'intro' | 'level' | 'wake' | 'book' | 'finale';
+type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free';
 
 const HOLD_TIME = 0.7;
 const WAKE_TIME = 4.5;
@@ -32,6 +33,8 @@ interface DebugApi {
   reset(): void;
   /** Desktop only: tilt the view down (negative degrees) to show the button tray. */
   setCameraPitch(deg: number): void;
+  /** The poses of a story creature, by id, to test free play. */
+  posesFor(id: string): HandPose[];
   /** Current target poses, shifted in position (meters) to test the matcher. */
   targetPoses(dx: number, dy: number): HandPose[];
 }
@@ -57,6 +60,11 @@ export class GameSystem extends createSystem({}) {
     }),
   );
   private guideAlpha = 0;
+  /** Free play: one matcher per creature the player has found. */
+  private freeCands: { level: Level; m: Matcher }[] = [];
+  private freePlay = false;
+  private freeBest = -1;
+  private freeShown = -1;
   private targetJoints: Float32Array[] = [];
   private mirrorJoints: Float32Array[] = [];
   private guideHands: (Float32Array | null)[] = [null, null];
@@ -142,6 +150,7 @@ export class GameSystem extends createSystem({}) {
         else this.ink(['Shadowfolk'], ['Sit back. Lift a hand into the lamplight.'], 'The shadows on this paper are asleep.');
         break;
       case 'level':
+        this.freePlay = false;
         this.loadTarget();
         u.uTargetMode.value = 0;
         u.uLiveAlpha.value = 1;
@@ -170,11 +179,25 @@ export class GameSystem extends createSystem({}) {
       case 'finale':
         u.uTargetAlpha.value = 0;
         u.uMeter.value = 0;
+        this.freePlay = false;
         this.ink(
           ['Every shadow is awake'],
-          ['A new shadow wakes each day.', 'Press Daily to meet it.'],
+          this.progress.dailyDay === dayNumber()
+            ? ['Come back tomorrow for a new shadow.', 'Press Free play to make any shadow you know.']
+            : ['A new shadow wakes each day.', 'Press Daily to meet it.'],
           `Found ${this.progress.found.length}  ·  streak ${this.progress.streak}`,
         );
+        break;
+      case 'free':
+        this.freePlay = true;
+        this.isDaily = false;
+        this.buildFreeCands();
+        u.uTargetAlpha.value = 0;
+        u.uMeter.value = 1;
+        u.uLiveAlpha.value = 1;
+        this.freeBest = -1;
+        this.freeShown = -1;
+        this.inkFree();
         break;
     }
     this.updateLabels();
@@ -257,7 +280,10 @@ export class GameSystem extends createSystem({}) {
     if (id === 'next') {
       if (this.state === 'intro') this.startNextLevel();
       else if (this.state === 'book') this.resumeFromBook();
-      else if (this.state === 'finale') this.startDaily();
+      else if (this.state === 'finale') {
+        if (this.progress.dailyDay === dayNumber()) this.enter('free');
+        else this.startDaily();
+      } else if (this.state === 'free') this.enter('finale');
       else if (this.state === 'level') {
         // skip: move on without marking the shape found
         if (!this.isDaily && this.progress.level < LEVELS.length) {
@@ -265,7 +291,10 @@ export class GameSystem extends createSystem({}) {
           saveProgress(this.progress);
         }
         this.startNextLevel();
-      } else if (this.state === 'wake') this.startNextLevel();
+      } else if (this.state === 'wake') {
+        if (this.freePlay) this.enter('free');
+        else this.startNextLevel();
+      }
     }
   }
 
@@ -276,7 +305,19 @@ export class GameSystem extends createSystem({}) {
 
   private updateLabels() {
     const next =
-      this.state === 'intro' ? 'Begin' : this.state === 'book' ? 'Back' : this.state === 'finale' ? 'Daily' : this.state === 'wake' ? 'Next' : 'Skip';
+      this.state === 'intro'
+        ? 'Begin'
+        : this.state === 'book'
+          ? 'Back'
+          : this.state === 'finale'
+            ? this.progress.dailyDay === dayNumber()
+              ? 'Free play'
+              : 'Daily'
+            : this.state === 'free'
+              ? 'Done'
+              : this.state === 'wake'
+                ? 'Next'
+                : 'Skip';
     this.theater.drawLabels({
       book: this.state === 'book' ? 'Close' : 'Book',
       gentle: this.progress.gentle ? 'Gentle: on' : 'Gentle: off',
@@ -495,13 +536,92 @@ export class GameSystem extends createSystem({}) {
         this.theater.target.render(renderer, this.creature);
         if (this.stateTime > WAKE_TIME + 0.4) {
           u.uLiveAlpha.value = 1;
-          this.startNextLevel();
+          if (this.freePlay) this.enter('free');
+          else this.startNextLevel();
         }
         break;
       }
+      case 'free':
+        this.updateFree(dt, area);
+        break;
       default:
         break;
     }
+  }
+
+  private buildFreeCands() {
+    const found = new Set(this.progress.found);
+    const levels = LEVELS.filter((l) => found.has(l.id));
+    const today = dailyLevel(dayNumber());
+    if (found.has(today.id)) levels.push(today);
+    const buf = new SegmentBuffer();
+    const m = new Uint8Array(GRID_W * GRID_H);
+    this.freeCands = levels.map((level) => {
+      buf.clear();
+      level.hands.forEach((h, k) => projectHand(poseToJoints(h), buf, k * SEGS_PER_HAND));
+      rasterize(buf, m);
+      const matcher = new Matcher();
+      matcher.setTarget(m);
+      return { level, m: matcher };
+    });
+  }
+
+  /** Free play: score the shadow against every found creature and wake the best one. */
+  private updateFree(dt: number, area: number) {
+    const u = this.theater.wallMat.uniforms;
+    let best = -1;
+    let bestScore = 0;
+    let bestRatio = 0;
+    if (area > 0 && this.freeCands.length) {
+      const st = shapeStats(this.mask);
+      this.freeCands.forEach((c, i) => {
+        const sc = c.m.scoreWithStats(this.mask, st, true);
+        const thr = c.level.threshold - (this.progress.gentle ? 0.1 : 0);
+        // rank by how close each creature is to its own threshold
+        if (sc / thr > bestRatio) {
+          bestRatio = sc / thr;
+          bestScore = sc;
+          best = i;
+        }
+      });
+    }
+    const thr = best >= 0 ? this.freeCands[best].level.threshold - (this.progress.gentle ? 0.1 : 0) : 1;
+    this.score += (bestScore - this.score) * Math.min(1, dt * 8);
+    u.uScore.value = this.score;
+    if (best >= 0) u.uThreshold.value = thr;
+    this.sfx.setCloseness(this.score, thr);
+    // the same creature must stay on top for the whole hold
+    if (best !== this.freeBest) this.hold = 0;
+    this.freeBest = best;
+    this.hold = best >= 0 && bestScore >= thr ? this.hold + dt : Math.max(0, this.hold - dt * 2);
+    u.uHold.value = Math.min(1, this.hold / HOLD_TIME);
+    // name the creature on the paper once the shape is close to one
+    const shown = best >= 0 && bestScore >= thr - 0.08 ? best : -1;
+    if (shown !== this.freeShown) {
+      this.freeShown = shown;
+      this.inkFree();
+    }
+    if (best >= 0 && this.hold >= HOLD_TIME) {
+      const c = this.freeCands[best];
+      this.level = c.level;
+      this.loadTarget();
+      const st = c.m.lastStats;
+      const ts = c.m.targetStats;
+      const [px, py] = gridToWall(st.cx, st.cy);
+      const [tx, ty] = gridToWall(ts.cx, ts.cy);
+      this.wakeFrom = { x: px - tx, y: py - ty, s: Math.sqrt(st.area / ts.area), mirror: c.m.lastMirrored };
+      this.wakeCenter = [tx, ty];
+      this.enter('wake');
+    }
+  }
+
+  private inkFree() {
+    const name = this.freeShown >= 0 ? this.freeCands[this.freeShown].level.name : '';
+    this.ink(
+      ['Free play'],
+      ['Make any shadow from your Book.', 'Hold it still, and it wakes.'],
+      name ? `${name}?` : `${this.freeCands.length} shadows you know`,
+    );
   }
 
   private wakeCenter: [number, number] = [0, 0];
@@ -648,6 +768,7 @@ export class GameSystem extends createSystem({}) {
       setCameraPitch: (deg) => {
         this.world.camera.rotation.set((deg * Math.PI) / 180, 0, 0, 'YXZ');
       },
+      posesFor: (id) => LEVELS.find((l) => l.id === id)?.hands ?? [],
       targetPoses: (dx, dy) =>
         this.level.hands.map((h) => ({ ...h, pos: [h.pos[0] + dx, h.pos[1] + dy, h.pos[2]] as [number, number, number] })),
       reset: () => {

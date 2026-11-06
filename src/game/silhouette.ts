@@ -279,7 +279,11 @@ export class Matcher {
   }
 
   score(mask: Uint8Array, allowMirror: boolean): number {
-    const st = shapeStats(mask);
+    return this.scoreWithStats(mask, shapeStats(mask), allowMirror);
+  }
+
+  /** Same as score(), with the mask's stats computed once by the caller. */
+  scoreWithStats(mask: Uint8Array, st: ShapeStats, allowMirror: boolean): number {
     this.lastStats = st;
     this.lastMirrored = false;
     if (st.area < 8 || this.targetArea < 8) return 0;
