@@ -118,9 +118,12 @@ await page.addInitScript(() => {
 const ONLY_POKE = !!process.env.ONLY_POKE;
 if (ONLY_POKE) {
   // test mode: start at the end of the story and run the button section only
-  await page.addInitScript((d: string) => {
-    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: 6, found: ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', d], gentle: false, dailyDay: -1, streak: 1 }));
-  }, dailyLevel(dayNumber()).id);
+  await page.addInitScript(
+    ({ d, day, ids }: { d: string; day: number; ids: string[] }) => {
+      localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: [...ids, d], gentle: false, dailyDay: day, streak: 1 }));
+    },
+    { d: dailyLevel(dayNumber()).id, day: dayNumber(), ids: LEVELS.map((l) => l.id) },
+  );
 }
 await page.goto(url + (url.includes('?') ? '&' : '?') + 'capture=1');
 for (let i = 0; i < 600 && !(await page.evaluate(() => !!(window as any).__shadowfolk)); i++) {
