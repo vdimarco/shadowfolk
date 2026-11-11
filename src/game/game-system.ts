@@ -1,7 +1,7 @@
 import { AdditiveBlending, Color, createSystem, Matrix4, MeshBasicMaterial, Vector3, VisibilityState, type WebGLRenderer } from '@iwsdk/core';
 import { Sfx } from './audio.js';
 import { dailyLevel, dayNumber } from './daily.js';
-import { type HandPose, JOINT_COUNT, JOINT_NAMES, poseToJoints } from './hand-model.js';
+import { type Handedness, type HandPose, JOINT_COUNT, JOINT_NAMES, poseToJoints } from './hand-model.js';
 import { LEVELS, type Level, type Motion } from './levels.js';
 import {
   clearHand,
@@ -79,6 +79,20 @@ export class GameSystem extends createSystem({}) {
   private targetJoints: Float32Array[] = [];
   private mirrorJoints: Float32Array[] = [];
   private guideHands: (Float32Array | null)[] = [null, null];
+  /** The guide, drawn with the real hand model, and buffers for its moved joints. */
+  private guideSkin = new SkinnedHands(
+    new MeshBasicMaterial({
+      color: new Color(1.0, 0.6, 0.16),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false,
+      blending: AdditiveBlending,
+    }),
+    'Guide Hands (model)',
+  );
+  private guideBuf = [new Float32Array(JOINT_COUNT * 3), new Float32Array(JOINT_COUNT * 3)];
+  private guideSide: (Handedness | null)[] = [null, null];
   private eyeBase: [number, number] | null = null;
   private eyeTmp: [number, number] = [0, 0];
   private vizHands: (Float32Array | null)[] = [null, null];
@@ -119,7 +133,7 @@ export class GameSystem extends createSystem({}) {
     this.progress = loadProgress();
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
-    this.theater.root.add(this.handViz.root, this.guide.root);
+    this.theater.root.add(this.handViz.root, this.guide.root, this.guideSkin.root);
     // real hand models only where we draw simulated hands (desktop demo and capture)
     const params = new URLSearchParams(location.search);
     if (params.has('demo') || params.has('capture')) {
@@ -695,23 +709,66 @@ export class GameSystem extends createSystem({}) {
     // a lone left hand on a right-hand shape: mirror the guide for that hand
     const mirror = this.level.hands.length === 1 && this.level.hands[0].hand === 'right' && this.present.left && !this.present.right;
     const src = mirror ? this.mirrorJoints : this.targetJoints;
-    if (this.oneHandOk()) {
-      // show only the half made by the hand the player is using
-      const side = this.present.right ? 'right' : 'left';
-      const k = this.level.hands.findIndex((h) => h.hand === side);
-      this.guideHands[0] = show && k >= 0 ? this.targetJoints[k] : null;
-      this.guideHands[1] = null;
-    } else {
-      this.guideHands[0] = show ? src[0] ?? null : null;
-      this.guideHands[1] = show ? src[1] ?? null : null;
+    this.guideHands[0] = null;
+    this.guideHands[1] = null;
+    this.guideSide[0] = null;
+    this.guideSide[1] = null;
+    if (show) {
+      // which target hands to draw, and which real hand each one belongs to
+      let n = 0;
+      for (let k = 0; k < src.length; k++) {
+        const side: Handedness = mirror ? (this.level.hands[k].hand === 'right' ? 'left' : 'right') : this.level.hands[k].hand;
+        if (this.oneHandOk() && !this.present[side]) continue;
+        this.guideHands[n] = src[k];
+        this.guideSide[n] = side;
+        n++;
+      }
+      // follow the player's hands: move the guide so its wrists sit on the
+      // real wrists, so only the pose and the turn of the hand are left to match
+      let ox = 0, oy = 0, oz = 0, m = 0;
+      for (let k = 0; k < n; k++) {
+        const side = this.guideSide[k]!;
+        if (!this.present[side]) continue;
+        const real = this.joints[side];
+        const g = this.guideHands[k]!;
+        ox += real[0] - g[0];
+        oy += real[1] - g[1];
+        oz += real[2] - g[2];
+        m++;
+      }
+      if (m) {
+        ox /= m; oy /= m; oz /= m;
+      }
+      for (let k = 0; k < n; k++) {
+        const g = this.guideHands[k]!;
+        const out = this.guideBuf[k];
+        for (let i = 0; i < JOINT_COUNT; i++) {
+          out[i * 3] = g[i * 3] + ox;
+          out[i * 3 + 1] = g[i * 3 + 1] + oy;
+          out[i * 3 + 2] = g[i * 3 + 2] + oz;
+        }
+        this.guideHands[k] = out;
+      }
     }
+    const opacity = 0.55 * this.guideAlpha;
+    if (this.guideSkin.loaded) {
+      let l: Float32Array | null = null, r: Float32Array | null = null;
+      for (let k = 0; k < 2; k++) {
+        if (this.guideSide[k] === 'left') l = this.guideHands[k];
+        if (this.guideSide[k] === 'right') r = this.guideHands[k];
+      }
+      this.guideSkin.update(l, r);
+      this.guideSkin.setOpacity(opacity);
+      this.guideHands[0] = null;
+      this.guideHands[1] = null;
+    }
+    this.guide.update(this.guideHands);
+    this.guide.material.opacity = opacity;
     // once the guide is fully up, point a stuck player at the tray
     if (this.state === 'level' && !this.stuckShown && this.guideAlpha > 0.9) {
       this.stuckShown = true;
       this.inkLevel(true);
     }
-    this.guide.update(this.guideHands);
-    this.guide.material.opacity = 0.55 * this.guideAlpha;
   }
   private introDone = false;
   private wasImmersive = false;

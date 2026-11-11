@@ -3,11 +3,16 @@
  * and the GPU shadow pass that paints projected hand capsules into a texture.
  */
 import {
+  AddEquation,
   BoxGeometry,
   CanvasTexture,
   Color,
+  CustomBlending,
   CylinderGeometry,
+  DynamicDrawUsage,
   Group,
+  InstancedBufferAttribute,
+  InstancedBufferGeometry,
   LinearFilter,
   Mesh,
   MeshStandardMaterial,
@@ -16,82 +21,127 @@ import {
   PointLight,
   Scene,
   ShaderMaterial,
+  SrcColorFactor,
   SRGBColorSpace,
   Vector2,
   Vector4,
   WebGLRenderTarget,
+  ZeroFactor,
   type WebGLRenderer,
 } from '@iwsdk/core';
 import { LIGHT, MAX_SEGS, type SegmentBuffer, WALL_CY, WALL_H, WALL_W, WALL_Z } from './silhouette.js';
 
-const RT_W = 512;
-const RT_H = 352;
+// High resolution: each capsule draws only its own small quad, so the cost
+// follows the shadow's area rather than the texture size.
+const RT_W = 1536;
+const RT_H = 1056;
 
-const quadVert = /* glsl */ `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}`;
-
-const shadowFrag = /* glsl */ `
-precision highp float;
-uniform vec4 uSeg[${MAX_SEGS * 2}];
+const segVert = /* glsl */ `
+attribute vec4 iA; // ax, ay, ar, as  (wall meters)
+attribute vec4 iB; // bx, by, br, bs
 uniform vec2 uWall;
-varying vec2 vUv;
+varying vec2 vP;
+varying vec4 vA;
+varying vec4 vB;
 void main() {
-  vec2 p = (vUv - 0.5) * uWall;
-  float cov = 0.0;
-  for (int i = 0; i < ${MAX_SEGS}; i++) {
-    vec4 a = uSeg[i * 2];
-    if (a.z <= 0.0) continue;
-    vec4 b = uSeg[i * 2 + 1];
-    vec2 pa = p - a.xy;
-    vec2 ba = b.xy - a.xy;
-    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
-    float r = mix(a.z, b.z, h);
-    float s = mix(a.w, b.w, h);
-    float d = length(pa - ba * h) - r;
-    cov = max(cov, 1.0 - smoothstep(-s, s, d));
+  vA = iA;
+  vB = iB;
+  if (iA.z <= 0.0) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // unused slot: off screen
+    return;
   }
-  gl_FragColor = vec4(cov, cov, cov, 1.0);
+  float ea = iA.z + iA.w * 1.2;
+  float eb = iB.z + iB.w * 1.2;
+  vec2 lo = min(iA.xy - ea, iB.xy - eb);
+  vec2 hi = max(iA.xy + ea, iB.xy + eb);
+  vP = mix(lo, hi, position.xy * 0.5 + 0.5);
+  gl_Position = vec4(vP / (uWall * 0.5), 0.0, 1.0);
 }`;
 
-/** Paints a SegmentBuffer into a texture. */
+const segFrag = /* glsl */ `
+precision highp float;
+varying vec2 vP;
+varying vec4 vA;
+varying vec4 vB;
+void main() {
+  vec2 pa = vP - vA.xy;
+  vec2 ba = vB.xy - vA.xy;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  float r = mix(vA.z, vB.z, h);
+  float s = mix(vA.w, vB.w, h);
+  float d = length(pa - ba * h) - r;
+  float light = smoothstep(-s, s, d);
+  gl_FragColor = vec4(light, light, light, 1.0);
+}`;
+
+/**
+ * Paints a SegmentBuffer into a texture: one instanced quad per capsule.
+ * The texture holds light (1 = no shadow); each capsule multiplies in its own
+ * light, so overlaps join without seams, like real overlapping shadows.
+ */
 export class ShadowPass {
   readonly rt = new WebGLRenderTarget(RT_W, RT_H, { depthBuffer: false });
   private scene = new Scene();
   private cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  private mat: ShaderMaterial;
-  private seg = new Float32Array(MAX_SEGS * 8);
+  private a = new InstancedBufferAttribute(new Float32Array(MAX_SEGS * 4), 4);
+  private b = new InstancedBufferAttribute(new Float32Array(MAX_SEGS * 4), 4);
+  private clear = new Color();
 
   constructor() {
     this.rt.texture.minFilter = LinearFilter;
     this.rt.texture.magFilter = LinearFilter;
     this.rt.texture.generateMipmaps = false;
-    this.mat = new ShaderMaterial({
-      vertexShader: quadVert,
-      fragmentShader: shadowFrag,
-      uniforms: {
-        uSeg: { value: this.seg },
-        uWall: { value: new Vector2(WALL_W, WALL_H) },
-      },
+    this.a.setUsage(DynamicDrawUsage);
+    this.b.setUsage(DynamicDrawUsage);
+    const geo = new InstancedBufferGeometry();
+    const quad = new PlaneGeometry(2, 2);
+    geo.index = quad.index;
+    geo.setAttribute('position', quad.getAttribute('position'));
+    geo.setAttribute('iA', this.a);
+    geo.setAttribute('iB', this.b);
+    geo.instanceCount = MAX_SEGS;
+    const mat = new ShaderMaterial({
+      vertexShader: segVert,
+      fragmentShader: segFrag,
+      uniforms: { uWall: { value: new Vector2(WALL_W, WALL_H) } },
       depthTest: false,
       depthWrite: false,
+      transparent: true,
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: ZeroFactor,
+      blendDst: SrcColorFactor,
     });
-    const quad = new Mesh(new PlaneGeometry(2, 2), this.mat);
-    quad.frustumCulled = false;
-    this.scene.add(quad);
+    const mesh = new Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
   }
 
   render(renderer: WebGLRenderer, buf: SegmentBuffer) {
-    this.seg.set(buf.data);
+    const d = buf.data;
+    const A = this.a.array as Float32Array;
+    const B = this.b.array as Float32Array;
+    for (let i = 0; i < MAX_SEGS; i++) {
+      const o = i * 8;
+      A[i * 4] = d[o]; A[i * 4 + 1] = d[o + 1]; A[i * 4 + 2] = d[o + 2]; A[i * 4 + 3] = d[o + 3];
+      B[i * 4] = d[o + 4]; B[i * 4 + 1] = d[o + 5]; B[i * 4 + 2] = d[o + 6]; B[i * 4 + 3] = d[o + 7];
+    }
+    this.a.needsUpdate = true;
+    this.b.needsUpdate = true;
     const prevTarget = renderer.getRenderTarget();
     const xrOn = renderer.xr.enabled;
+    const autoClear = renderer.autoClear;
+    renderer.getClearColor(this.clear);
+    const clearAlpha = renderer.getClearAlpha();
     renderer.xr.enabled = false;
+    renderer.autoClear = false;
     renderer.setRenderTarget(this.rt);
+    renderer.setClearColor(0xffffff, 1);
+    renderer.clear(true, false, false);
     renderer.render(this.scene, this.cam);
     renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(this.clear, clearAlpha);
+    renderer.autoClear = autoClear;
     renderer.xr.enabled = xrOn;
   }
 }
@@ -122,6 +172,7 @@ uniform float uContrast;     // 0 = warm paper, 1 = high contrast
 uniform vec4 uEye;           // creature eye: x, y, radius, alpha
 varying vec2 vUv;
 
+float cov(sampler2D t, vec2 uv) { return 1.0 - texture2D(t, uv).r; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -142,13 +193,13 @@ void main() {
   vec4 ink = texture2D(uInk, vUv);
   col = mix(col, mix(vec3(0.32, 0.18, 0.1), vec3(0.05), uContrast) * lit, ink.a * 0.9);
 
-  float live = texture2D(uLive, vUv).r * uLiveAlpha;
+  float live = cov(uLive, vUv) * uLiveAlpha;
   vec2 px = vec2(2.0 / 512.0, 2.0 / 352.0);
-  float t0 = texture2D(uTarget, vUv).r;
-  float edge = abs(t0 - texture2D(uTarget, vUv + vec2(px.x, 0.0)).r)
-             + abs(t0 - texture2D(uTarget, vUv - vec2(px.x, 0.0)).r)
-             + abs(t0 - texture2D(uTarget, vUv + vec2(0.0, px.y)).r)
-             + abs(t0 - texture2D(uTarget, vUv - vec2(0.0, px.y)).r);
+  float t0 = cov(uTarget, vUv);
+  float edge = abs(t0 - cov(uTarget, vUv + vec2(px.x, 0.0)))
+             + abs(t0 - cov(uTarget, vUv - vec2(px.x, 0.0)))
+             + abs(t0 - cov(uTarget, vUv + vec2(0.0, px.y)))
+             + abs(t0 - cov(uTarget, vUv - vec2(0.0, px.y)));
   float guide = clamp(edge * 1.5, 0.0, 1.0) * (1.0 - uTargetMode) * uTargetAlpha;
   float ghost = t0 * (1.0 - uTargetMode) * uTargetAlpha * 0.1;
   float creature = t0 * uTargetMode * uTargetAlpha;

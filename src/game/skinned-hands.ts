@@ -10,6 +10,7 @@ import {
   Color,
   Group,
   Matrix4,
+  type Material,
   MeshStandardMaterial,
   type Object3D,
   type SkinnedMesh,
@@ -37,12 +38,15 @@ export class SkinnedHands {
   private z = new Vector3();
   private m = new Matrix4();
 
-  constructor() {
-    this.root.name = 'Skinned Hands';
-    const skin = new MeshStandardMaterial({ color: new Color(0.72, 0.5, 0.38), roughness: 0.55, metalness: 0 });
+  constructor(material?: Material, name = 'Skinned Hands') {
+    this.root.name = name;
+    const skin = material ?? new MeshStandardMaterial({ color: new Color(0.72, 0.5, 0.38), roughness: 0.55, metalness: 0 });
+    this.skinMaterial = skin;
     const load = async (hand: Handedness) => {
-      const gltf = await AssetManager.loadGLTFById(`hand-${hand}`);
-      const model = gltf.scene;
+      const id = `hand-${hand}`;
+      const loaded = await AssetManager.loadGLTFById(id);
+      // a clone, so the guide and the simulated hands can both use the model
+      const model = AssetManager.getGLTF(id)?.scene ?? loaded.scene;
       model.traverse((o) => {
         const sm = o as SkinnedMesh;
         if (sm.isSkinnedMesh) {
@@ -61,6 +65,15 @@ export class SkinnedHands {
         console.warn('[shadowfolk] hand model failed to load; using capsule hands', e);
         return false;
       });
+  }
+
+  private skinMaterial: Material | null = null;
+
+  /** For see-through materials: fade the whole model. */
+  setOpacity(o: number) {
+    const m = this.skinMaterial as (Material & { opacity: number }) | null;
+    if (m) m.opacity = o;
+    this.root.visible = o > 0.005;
   }
 
   get loaded() {

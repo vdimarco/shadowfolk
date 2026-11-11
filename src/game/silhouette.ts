@@ -14,7 +14,7 @@ export const WALL_H = 1.1;
 /** The lamp sits low and behind, like a lantern on a side table. */
 export const LIGHT: [number, number, number] = [0, -0.3, 0.2];
 /** Flame size; larger gives softer shadows. */
-export const LIGHT_SIZE = 0.018;
+export const LIGHT_SIZE = 0.009;
 
 /** Max 2D segments the shader accepts (2 hands * SEGS_PER_HAND). */
 export const SEGS_PER_HAND = 32;
