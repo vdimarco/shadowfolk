@@ -1,0 +1,40 @@
+{
+  "packageId": "app.vercel.shadowfolk",
+  "applicationId": "0",
+  "host": "shadowfolk.vercel.app",
+  "name": "Shadowfolk",
+  "launcherName": "Shadowfolk",
+  "display": "standalone",
+  "orientation": "landscape",
+  "themeColor": "#1a0d07",
+  "backgroundColor": "#06040a",
+  "navigationColor": "#06040a",
+  "startUrl": "/",
+  "iconUrl": "https://shadowfolk.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://shadowfolk.vercel.app/icons/icon-512-maskable.png",
+  "webManifestUrl": "https://shadowfolk.vercel.app/manifest.webmanifest",
+  "signingKey": {
+    "path": "REPLACE_WITH_ABSOLUTE_PATH/shadowfolk-android.keystore",
+    "alias": "shadowfolk"
+  },
+  "appVersion": "1",
+  "appVersionName": "1.0",
+  "appVersionCode": 1,
+  "fallbackType": "customtabs",
+  "features": {},
+  "isMetaQuest": true,
+  "horizonOSAppMode": "immersive",
+  "fingerprints": [],
+  "minSdkVersion": 23,
+  "enableNotifications": false,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "splashScreenFadeOutDuration": 300,
+  "enableSiteSettingsShortcut": false,
+  "isChromeOSOnly": false,
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "retainedBundles": [],
+  "fullScopeUrl": "https://shadowfolk.vercel.app/"
+}

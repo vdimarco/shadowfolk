@@ -51,3 +51,9 @@ pids/
 
 # local test builds
 dist2/
+
+# Quest signing keys and builds never go in the repo
+*.keystore
+*.jks
+*.apk
+*.aab
