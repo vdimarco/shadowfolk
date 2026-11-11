@@ -73,8 +73,12 @@ export const FOREARM_SLOT = SEGS_PER_HAND - 1;
  * A segment with ar <= 0 is unused.
  */
 export class SegmentBuffer {
-  readonly data = new Float32Array(MAX_SEGS * 8);
+  readonly data: Float32Array;
   count = 0;
+  /** Room for `hands` hands of capsules (two by default). */
+  constructor(hands = 2) {
+    this.data = new Float32Array(hands * SEGS_PER_HAND * 8);
+  }
   clear() {
     this.data.fill(0);
     this.count = 0;
@@ -176,7 +180,8 @@ export function rasterize(buf: SegmentBuffer, mask: Uint8Array, skipForearm = tr
   const sx = WALL_W / GRID_W;
   const sy = WALL_H / GRID_H;
   let area = 0;
-  for (let s = 0; s < MAX_SEGS; s++) {
+  const n = d.length / 8;
+  for (let s = 0; s < n; s++) {
     if (skipForearm && s % SEGS_PER_HAND === FOREARM_SLOT) continue;
     const o = s * 8;
     const ar = d[o + 2];

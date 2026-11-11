@@ -24,8 +24,9 @@ import { HandViz } from './hand-viz.js';
 import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
 import { NightWorld } from './world.js';
+import { BattleScene } from './battle-scene.js';
 
-type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle';
+type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle';
 
 const HOLD_TIME = 0.7;
 const WAKE_TIME = 4.5;
@@ -35,7 +36,21 @@ const SIDES_RL = ['right', 'left'] as const;
 
 interface DebugApi {
   setPoses(poses: HandPose[] | null): void;
-  state(): { state: State; level: string; score: number; found: string[]; hands: number; puzzleCount: number; puzzleDone: boolean; xr: boolean };
+  state(): {
+    state: State;
+    level: string;
+    score: number;
+    found: string[];
+    hands: number;
+    puzzleCount: number;
+    puzzleDone: boolean;
+    xr: boolean;
+    battle: { hp: number; maxHp: number; flames: number; state: string; windup: number; warded: boolean; spells: string[] } | null;
+  };
+  /** Battle cues so far (casts, hits, strikes), in battle seconds, for the video soundtrack. */
+  battleLog(): { t: number; type: string }[];
+  /** Camera and room positions, to check where the room was anchored. */
+  where(): { camera: number[]; room: number[]; anchored: boolean };
   press(id: string): void;
   reset(): void;
   /** Render the music offline and return it as base64 WAV, to check it without a headset. */
@@ -120,6 +135,8 @@ export class GameSystem extends createSystem({}) {
   private vizHands: (Float32Array | null)[] = [null, null];
   private sfx = new Sfx();
   private progress!: Progress;
+  /** Chapter four: the Ink Wolf. */
+  private battleScene!: BattleScene;
 
   private live = new SegmentBuffer();
   private creature = new SegmentBuffer();
@@ -156,6 +173,7 @@ export class GameSystem extends createSystem({}) {
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
     this.theater.root.add(this.handViz.root, this.guide.root, this.guideSkin.root);
+    this.battleScene = new BattleScene(this.theater, this.sfx);
     this.nightWorld = new NightWorld();
     this.theater.root.add(this.nightWorld.root);
     // real hand models only where we draw simulated hands (desktop demo and capture)
@@ -191,6 +209,7 @@ export class GameSystem extends createSystem({}) {
   // --------------------------------------------------------------- states
 
   private enter(s: State) {
+    if (this.state === 'battle' && s !== 'battle') this.battleScene.stop();
     this.state = s;
     this.stateTime = 0;
     this.hold = 0;
@@ -253,6 +272,13 @@ export class GameSystem extends createSystem({}) {
         this.inkPuzzle();
         break;
       }
+      case 'battle':
+        this.isDaily = false;
+        this.freePlay = false;
+        this.targetJoints = [];
+        u.uLiveAlpha.value = 1;
+        this.battleScene.start(this.progress.gentle, this.progress.found);
+        break;
       case 'free':
         this.freePlay = true;
         this.isDaily = false;
@@ -284,6 +310,8 @@ export class GameSystem extends createSystem({}) {
     } else if ((this.progress.puzzle ?? 0) < PUZZLES.length) {
       this.isDaily = false;
       this.enter('puzzle');
+    } else if (!this.progress.battle) {
+      this.enter('battle');
     } else if (this.progress.dailyDay !== dayNumber()) {
       this.startDaily();
     } else {
@@ -370,6 +398,10 @@ export class GameSystem extends createSystem({}) {
       } else if (this.state === 'free') this.enter('finale');
       else if (this.state === 'puzzle') {
         this.progress.puzzle = (this.progress.puzzle ?? 0) + 1;
+        saveProgress(this.progress);
+        this.startNextLevel();
+      } else if (this.state === 'battle') {
+        this.progress.battle = true;
         saveProgress(this.progress);
         this.startNextLevel();
       }
@@ -590,7 +622,7 @@ export class GameSystem extends createSystem({}) {
 
     this.updateGuide(dt);
     u.uEye.value.w = 0;
-    if (this.state !== 'puzzle') u.uDotCount.value = 0;
+    if (this.state !== 'puzzle' && this.state !== 'battle') u.uDotCount.value = 0;
 
     switch (this.state) {
       case 'intro': {
@@ -676,6 +708,16 @@ export class GameSystem extends createSystem({}) {
       case 'puzzle':
         this.updatePuzzle(dt);
         break;
+      case 'battle': {
+        const done = this.battleScene.update(dt, renderer, this.mask, area);
+        this.score = this.battleScene.score;
+        if (done) {
+          this.progress.battle = true;
+          saveProgress(this.progress);
+          this.startNextLevel();
+        }
+        break;
+      }
       default:
         break;
     }
@@ -1112,7 +1154,8 @@ export class GameSystem extends createSystem({}) {
       },
       state: () => ({
         state: this.state,
-        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.level.id,
+        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.state === 'battle' ? 'battle' : this.level.id,
+        battle: this.state === 'battle' ? this.battleScene.info : null,
         puzzleCount: this.puzzleCount,
         puzzleDone: this.puzzleDoneAt >= 0,
         score: this.score,
@@ -1121,6 +1164,12 @@ export class GameSystem extends createSystem({}) {
         xr: !!this.world.session,
       }),
       press: (id) => this.press(id),
+      battleLog: () => [...this.battleScene.log],
+      where: () => {
+        this.world.camera.getWorldPosition(this.v);
+        const r = this.theater.root.position;
+        return { camera: [this.v.x, this.v.y, this.v.z], room: [r.x, r.y, r.z], anchored: this.anchored };
+      },
       renderMusic: async (seconds, cues) => {
         const bytes = await Sfx.renderPreview(seconds, cues);
         let bin = '';
@@ -1140,7 +1189,7 @@ export class GameSystem extends createSystem({}) {
       targetPoses: (dx, dy) =>
         this.level.hands.map((h) => ({ ...h, pos: [h.pos[0] + dx, h.pos[1] + dy, h.pos[2]] as [number, number, number] })),
       reset: () => {
-        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0 };
+        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0, battle: false };
         saveProgress(this.progress);
         this.applyContrast();
         this.enter('intro');

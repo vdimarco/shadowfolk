@@ -26,6 +26,9 @@ export class Sfx {
   private nextNoteAt = 0;
   private scheduler: number | null = null;
   private lastMel = -1;
+  private battleOn = false;
+  private nextDrumAt = 0;
+  private drumStep = 0;
 
   /** Call from a user gesture (Enter VR click). */
   start() {
@@ -53,10 +56,15 @@ export class Sfx {
       { t: seconds * 0.45, type: 'chime' },
       { t: seconds * 0.7, type: 'tap' },
     ];
+    let battleFrom = -1;
     for (const c of list) {
-      if (c.type === 'chime') sfx.chimeAt(c.t);
-      else sfx.tapAt(c.t);
+      if (c.type === 'battle') battleFrom = c.t;
+      else if (c.type === 'calm' && battleFrom >= 0) {
+        sfx.drumsBetween(battleFrom, c.t);
+        battleFrom = -1;
+      } else sfx.cueAt(c.type, c.t);
     }
+    if (battleFrom >= 0) sfx.drumsBetween(battleFrom, seconds);
     const buf = await ctx.startRendering();
     return encodeWav(buf);
   }
@@ -125,6 +133,14 @@ export class Sfx {
   }
 
   private scheduleUntil(horizon: number) {
+    if (this.battleOn) {
+      if (this.nextDrumAt < horizon - 1.2) this.nextDrumAt = horizon - 1.2;
+      while (this.nextDrumAt < horizon) {
+        this.drumAt(this.nextDrumAt, this.drumStep);
+        this.drumStep = (this.drumStep + 1) % 8;
+        this.nextDrumAt += 0.375;
+      }
+    }
     while (this.nextChordAt < horizon) {
       this.playChord(this.nextChordAt, CHORDS[this.chordIndex]);
       this.chordIndex = (this.chordIndex + 1) % CHORDS.length;
@@ -309,6 +325,135 @@ export class Sfx {
 
   tap() {
     if (this.ctx) this.tapAt(this.ctx.currentTime);
+  }
+
+  // ------------------------------------------------------------- battle
+
+  /** The Ink Wolf: a low frame-drum pulse under the score while the battle runs. */
+  setBattle(on: boolean) {
+    if (on && !this.battleOn && this.ctx) {
+      this.nextDrumAt = this.ctx.currentTime + 0.1;
+      this.drumStep = 0;
+    }
+    this.battleOn = on;
+  }
+
+  /** Play one battle cue now: whoosh, thump, growl, hurt, ward, win. */
+  cue(type: string) {
+    if (this.ctx) this.cueAt(type, this.ctx.currentTime);
+  }
+
+  private cueAt(type: string, t: number) {
+    if (!this.ctx) return;
+    switch (type) {
+      case 'chime':
+        return this.chimeAt(t);
+      case 'tap':
+        return this.tapAt(t);
+      case 'whoosh':
+        return this.noiseSweep(t, 0.45, 600, 3200, 0.22);
+      case 'thump':
+        this.drumAt(t, 0, 1.6);
+        return this.noiseSweep(t, 0.25, 2400, 300, 0.18);
+      case 'growl':
+        return this.growlAt(t);
+      case 'hurt': {
+        this.drumAt(t, 0, 1.4);
+        const c = this.chordAt(t);
+        this.pluck(t, midi(c.mel[0] - 1), 0.1, this.master!);
+        this.pluck(t + 0.02, midi(c.mel[0]), 0.1, this.master!);
+        return;
+      }
+      case 'ward': {
+        const c = this.chordAt(t);
+        [c.mel[4], c.mel[2] + 12, c.mel[4] + 12].forEach((n, i) => this.pluck(t + i * 0.04, midi(n), 0.07, this.wet!));
+        return;
+      }
+      case 'win':
+        this.chimeAt(t);
+        this.chimeAt(t + 0.5);
+        this.drumAt(t, 0, 1.4);
+        this.drumAt(t + 0.5, 0, 1.2);
+        return;
+    }
+  }
+
+  private drumsBetween(t0: number, t1: number) {
+    let step = 0;
+    for (let t = t0; t < t1; t += 0.375) this.drumAt(t, step++ % 8);
+  }
+
+  /** A soft frame drum: a falling sine with a breath of noise. Pattern: boom . . boom . boom . . */
+  private drumAt(t: number, step: number, amp = 1) {
+    const ctx = this.ctx!;
+    const accent = step === 0 ? 1 : step === 3 || step === 5 ? 0.6 : 0;
+    const level = amp > 1 ? amp : accent;
+    if (level <= 0) return;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(110, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22 * level, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    o.connect(g).connect(this.master!);
+    g.connect(this.wet!);
+    o.start(t);
+    o.stop(t + 0.5);
+  }
+
+  private noiseBuf: AudioBuffer | null = null;
+
+  /** Band-passed noise whose center slides from f0 to f1: wings and rushes of air. */
+  private noiseSweep(t: number, dur: number, f0: number, f1: number, amp: number) {
+    const ctx = this.ctx!;
+    if (!this.noiseBuf) {
+      this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const n = ctx.createBufferSource();
+    n.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.4;
+    bp.frequency.setValueAtTime(f0, t);
+    bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(amp, t + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(bp).connect(g).connect(this.master!);
+    n.start(t);
+    n.stop(t + dur + 0.05);
+  }
+
+  /** The wolf: a low, rough growl that swells while it gathers to strike. */
+  private growlAt(t: number) {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(62, t);
+    o.frequency.linearRampToValueAtTime(74, t + 1.1);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 23;
+    const lg = ctx.createGain();
+    lg.gain.value = 9;
+    lfo.connect(lg).connect(o.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(260, t);
+    lp.frequency.linearRampToValueAtTime(520, t + 1.1);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09, t + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    o.connect(lp).connect(g).connect(this.master!);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + 1.5);
+    lfo.stop(t + 1.5);
   }
 
   private tapAt(t: number) {

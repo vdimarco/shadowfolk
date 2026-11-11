@@ -29,7 +29,7 @@ import {
   ZeroFactor,
   type WebGLRenderer,
 } from '@iwsdk/core';
-import { LIGHT, MAX_SEGS, type SegmentBuffer, WALL_CY, WALL_H, WALL_W, WALL_Z } from './silhouette.js';
+import { LIGHT, MAX_SEGS, type SegmentBuffer, SEGS_PER_HAND, WALL_CY, WALL_H, WALL_W, WALL_Z } from './silhouette.js';
 
 // High resolution: each capsule draws only its own small quad, so the cost
 // follows the shadow's area rather than the texture size.
@@ -83,11 +83,16 @@ export class ShadowPass {
   readonly rt = new WebGLRenderTarget(RT_W, RT_H, { depthBuffer: false });
   private scene = new Scene();
   private cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  private a = new InstancedBufferAttribute(new Float32Array(MAX_SEGS * 4), 4);
-  private b = new InstancedBufferAttribute(new Float32Array(MAX_SEGS * 4), 4);
+  private a: InstancedBufferAttribute;
+  private b: InstancedBufferAttribute;
   private clear = new Color();
+  private readonly n: number;
 
-  constructor() {
+  /** `segs`: how many capsules the pass can draw. */
+  constructor(segs = MAX_SEGS) {
+    this.n = segs;
+    this.a = new InstancedBufferAttribute(new Float32Array(segs * 4), 4);
+    this.b = new InstancedBufferAttribute(new Float32Array(segs * 4), 4);
     this.rt.texture.minFilter = LinearFilter;
     this.rt.texture.magFilter = LinearFilter;
     this.rt.texture.generateMipmaps = false;
@@ -99,7 +104,7 @@ export class ShadowPass {
     geo.setAttribute('position', quad.getAttribute('position'));
     geo.setAttribute('iA', this.a);
     geo.setAttribute('iB', this.b);
-    geo.instanceCount = MAX_SEGS;
+    geo.instanceCount = segs;
     const mat = new ShaderMaterial({
       vertexShader: segVert,
       fragmentShader: segFrag,
@@ -125,7 +130,12 @@ export class ShadowPass {
     const d = buf.data;
     const A = this.a.array as Float32Array;
     const B = this.b.array as Float32Array;
-    for (let i = 0; i < MAX_SEGS; i++) {
+    const n = Math.min(this.n, d.length / 8);
+    for (let i = 0; i < this.n; i++) {
+      if (i >= n) {
+        A[i * 4 + 2] = 0;
+        continue;
+      }
       const o = i * 8;
       A[i * 4] = d[o]; A[i * 4 + 1] = d[o + 1]; A[i * 4 + 2] = d[o + 2]; A[i * 4 + 3] = d[o + 3];
       B[i * 4] = d[o + 4]; B[i * 4 + 1] = d[o + 5]; B[i * 4 + 2] = d[o + 6]; B[i * 4 + 3] = d[o + 7];
@@ -176,7 +186,11 @@ uniform float uContrast;     // 0 = warm paper, 1 = high contrast
 uniform vec4 uEye;           // creature eye: x, y, radius, alpha
 uniform vec4 uDots[32];      // puzzle dots: x, y, radius, brightness
 uniform int uDotCount;
-uniform float uDotKind;      // 0 = raindrops, 1 = fireflies
+uniform float uDotKind;      // 0 = raindrops, 1 = fireflies, 2 = battle (ink drops; w < 0: gold sparks)
+uniform vec4 uRedEye;        // the wolf's eye: x, y, radius, glow (0..1)
+uniform vec4 uFlash;         // battle: hurt (red), hit (gold), ward, web
+uniform vec4 uFxPos;         // ward center xy, web center zw
+uniform float uFlames;       // battle: lamp flames left (-1 = hidden)
 varying vec2 vUv;
 
 float cov(sampler2D t, vec2 uv) { return 1.0 - texture2D(t, uv).r; }
@@ -223,7 +237,16 @@ void main() {
     if (i >= uDotCount) break;
     vec4 d = uDots[i];
     float dd = length(p - d.xy);
-    if (uDotKind < 0.5) {
+    if (uDotKind > 1.5) {
+      if (d.w >= 0.0) {
+        float a = 1.0 - smoothstep(d.z * 0.6, d.z, dd);
+        col = mix(col, mix(vec3(0.06, 0.03, 0.08), vec3(0.0), uContrast), a * 0.92);
+      } else {
+        float core = 1.0 - smoothstep(d.z * 0.2, d.z * 0.55, dd);
+        float halo = exp(-dd * dd / (d.z * d.z * 4.0));
+        col += vec3(1.0, 0.78, 0.32) * (core * 1.2 + halo * 0.6) * -d.w;
+      }
+    } else if (uDotKind < 0.5) {
       float a = 1.0 - smoothstep(d.z * 0.75, d.z, length((p - d.xy) * vec2(1.0, 0.8)));
       col = mix(col, mix(vec3(0.16, 0.3, 0.55), vec3(0.05, 0.1, 0.2), uContrast) * lit, a * 0.9);
       float hl = 1.0 - smoothstep(0.0, d.z * 0.35, length(p - d.xy - vec2(-d.z * 0.3, d.z * 0.3)));
@@ -243,6 +266,62 @@ void main() {
     col = mix(col, vec3(1.0, 0.86, 0.5) * 1.5, core * uEye.w);
     col += vec3(1.0, 0.55, 0.18) * halo * 0.45 * uEye.w;
   }
+
+  // the Ink Wolf's eye: dark at rest, red and bright as it gathers to strike
+  if (uRedEye.z > 0.0) {
+    float de = length((p - uRedEye.xy) * vec2(1.0, 1.6));
+    float core = 1.0 - smoothstep(uRedEye.z * 0.4, uRedEye.z, de);
+    float halo = exp(-de * de / (uRedEye.z * uRedEye.z * (4.0 + 10.0 * uRedEye.w)));
+    col = mix(col, mix(vec3(0.55, 0.12, 0.05), vec3(1.0, 0.25, 0.1) * 1.4, uRedEye.w), core);
+    col += vec3(1.0, 0.15, 0.05) * halo * 0.7 * uRedEye.w;
+  }
+
+  // the starfish ward: a ring of gold light in front of the flames
+  if (uFlash.z > 0.0) {
+    float dr = length((p - uFxPos.xy) * vec2(1.6, 1.0));
+    float ring = exp(-pow((dr - 0.2) / 0.012, 2.0)) * (0.7 + 0.3 * sin(uTime * 7.0 + p.y * 40.0));
+    float fill = (1.0 - smoothstep(0.0, 0.2, dr)) * 0.12;
+    col += gold * (ring + fill) * uFlash.z;
+  }
+
+  // the spider web on the wolf: spokes and rings of pale thread
+  if (uFlash.w > 0.0) {
+    vec2 q = p - uFxPos.zw;
+    float r = length(q);
+    if (r < 0.2) {
+      float ang = atan(q.y, q.x);
+      float spoke = 1.0 - smoothstep(0.0, 0.004, abs(sin(ang * 4.0)) * r);
+      float ringw = 1.0 - smoothstep(0.0, 0.004, abs(fract(r * 22.0) - 0.5) / 22.0);
+      float a = max(spoke, ringw) * (1.0 - smoothstep(0.15, 0.2, r));
+      col = mix(col, vec3(0.92, 0.9, 0.84), a * 0.75 * uFlash.w);
+    }
+  }
+
+  // three lamp flames in the lower left: the player's life
+  if (uFlames >= 0.0) {
+    for (int i = 0; i < 3; i++) {
+      vec2 c = vec2(-0.7 + float(i) * 0.075, -0.38);
+      // candle
+      if (abs(p.x - c.x) < 0.012 && p.y < c.y - 0.018 && p.y > c.y - 0.085) col = mix(col, vec3(0.86, 0.8, 0.68) * lit, 0.95);
+      float on = clamp(uFlames - float(i), 0.0, 1.0);
+      vec2 f = (p - c) * vec2(1.0, 0.55);
+      float sway = sin(uTime * 9.0 + float(i) * 2.1) * 0.003;
+      f.x -= sway * (p.y - c.y + 0.02) * 30.0;
+      float fd = length(f);
+      float flame = 1.0 - smoothstep(0.008, 0.014, fd);
+      float halo = exp(-fd * fd / 0.0012);
+      col = mix(col, vec3(1.0, 0.9, 0.6) * 1.5, flame * on);
+      col += vec3(1.0, 0.55, 0.18) * halo * 0.5 * on;
+      // a spent flame leaves a curl of smoke
+      float smoke = (1.0 - on) * exp(-pow((p.x - c.x - 0.006 * sin(p.y * 90.0 + uTime * 2.0)) / 0.003, 2.0)) * step(c.y - 0.015, p.y) * (1.0 - smoothstep(c.y, c.y + 0.07, p.y));
+      col = mix(col, vec3(0.35, 0.3, 0.28), smoke * 0.5);
+    }
+  }
+
+  // hits: a gold flash; hurts: the paper reddens at the edges
+  float vign = smoothstep(0.35, 0.85, length(p / (uWall * 0.5)));
+  col = mix(col, vec3(0.75, 0.08, 0.04), uFlash.x * (0.25 + 0.6 * vign));
+  col += gold * uFlash.y * 0.3;
 
   // closeness meter along the bottom of the paper
   if (uMeter > 0.0) {
@@ -281,7 +360,8 @@ export class Theater {
   readonly labelTex: CanvasTexture;
   readonly buttons: Button[] = [];
   readonly live = new ShadowPass();
-  readonly target = new ShadowPass();
+  /** Guide and creatures; in the battle also the wolf and a flying spell, so room for four hands. */
+  readonly target = new ShadowPass(SEGS_PER_HAND * 4);
 
   constructor() {
     this.root.name = 'Shadowfolk Theater';
@@ -315,6 +395,10 @@ export class Theater {
         uDots: { value: new Float32Array(32 * 4) },
         uDotCount: { value: 0 },
         uDotKind: { value: 0 },
+        uRedEye: { value: new Vector4(0, 0, 0, 0) },
+        uFlash: { value: new Vector4(0, 0, 0, 0) },
+        uFxPos: { value: new Vector4(0, 0, 0, 0) },
+        uFlames: { value: -1 },
       },
     });
     const wall = new Mesh(new PlaneGeometry(WALL_W, WALL_H), this.wallMat);

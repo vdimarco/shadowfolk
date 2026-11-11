@@ -30,6 +30,31 @@ const { chromium } = require('playwright');
         await p.evaluate(() => window.__shadowfolk.press('next'));
         await p.waitForTimeout(500);
       }
+      // chapter four: fight the Ink Wolf with spells; block with the starfish when its eyes glow
+      if ((await st()).state === 'battle') {
+        const t0 = Date.now();
+        let k = 0, shots = 0;
+        while ((await st()).state === 'battle' && Date.now() - t0 < 300000) {
+          const bs = (await st()).battle;
+          if (!bs || bs.state !== 'fight') { await p.waitForTimeout(500); continue; }
+          const id = bs.windup > 0 && !bs.warded ? 'moth' : k++ % 2 ? 'dog' : 'crocodile';
+          const n0 = (await p.evaluate(() => window.__shadowfolk.battleLog())).filter((e) => e.type === 'whoosh').length;
+          await p.evaluate((id) => window.__shadowfolk.setPoses(window.__shadowfolk.posesFor(id)), id);
+          const tc = Date.now();
+          while (Date.now() - tc < 8000) {
+            const n = (await p.evaluate(() => window.__shadowfolk.battleLog())).filter((e) => e.type === 'whoosh').length;
+            if (n > n0) { shots++; break; }
+            await p.waitForTimeout(100);
+          }
+          if (shots === 3) await p.screenshot({ path: `${outDir}/battle.png` });
+          await p.evaluate(() => window.__shadowfolk.setPoses(null));
+          await p.waitForTimeout(400);
+        }
+        const after = await st();
+        if (after.state === 'battle') throw new Error('battle did not end: ' + JSON.stringify(after.battle));
+        console.log(`battle: won with ${shots} spells -> ${after.state}/${after.level}`);
+        continue;
+      }
       if ((await st()).level.startsWith('daily-')) break;
       const s0 = await st();
       if (s0.level === 'bird') {

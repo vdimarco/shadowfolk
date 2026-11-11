@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx tools/test-shapes.ts && tsx tools/test-puzzles.ts",
+    "test": "tsx tools/test-shapes.ts && tsx tools/test-puzzles.ts && tsx tools/test-battle.ts",
     "test:e2e": "node tools/e2e.cjs https://localhost:4173/ .",
     "deploy": "vercel deploy --prod --yes"
   },

@@ -120,6 +120,13 @@ const ONLY_POKE = !!process.env.ONLY_POKE;
 /** XR=1: record inside IWER, Meta's WebXR emulator, as an emulated Quest 3 in an immersive session. */
 const XR = !!process.env.XR;
 const ONLY_PUZZLES = !!process.env.ONLY_PUZZLES;
+/** Test mode: start at chapter four and record the battle only. */
+const ONLY_BATTLE = !!process.env.ONLY_BATTLE;
+if (ONLY_BATTLE) {
+  await page.addInitScript((ids: string[]) => {
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 2, battle: false }));
+  }, LEVELS.map((l) => l.id));
+}
 if (ONLY_PUZZLES) {
   // test mode: start right after chapter two and run the puzzle scenes only
   await page.addInitScript((ids: string[]) => {
@@ -165,7 +172,7 @@ await page.evaluate((keep: boolean) => {
   band.id = 'sf-band';
   band.style.opacity = '0';
   document.body.append(band, cap, card);
-}, ONLY_POKE || ONLY_PUZZLES);
+}, ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE);
 
 // ------------------------------------------------------------ timeline
 
@@ -178,6 +185,16 @@ let card = { html: '', alpha: 0 };
 let pitch = 0;
 let lastState = '';
 let lastLabel = '';
+/** Off: the game still plays, but no frames are saved (a cut in the video). */
+let recording = true;
+type Info = {
+  state: string;
+  level: string;
+  score: number;
+  casts: number;
+  battle: { hp: number; flames: number; state: string; windup: number; warded: boolean } | null;
+};
+let lastInfo: Info = { state: '', level: '', score: 0, casts: 0, battle: null };
 
 async function step() {
   const info = await page.evaluate(
@@ -193,7 +210,7 @@ async function step() {
       if (k.innerHTML !== cardHtml) k.innerHTML = cardHtml;
       k.style.opacity = String(cardA);
       (window as any).__advance(dt);
-      return sf.state();
+      return { ...sf.state(), casts: sf.battleLog().filter((e: { type: string }) => e.type === 'whoosh').length };
     },
     {
       poses: hands.map(denorm),
@@ -207,18 +224,20 @@ async function step() {
   );
   const t = frame / FPS;
   if (info.state !== lastState) {
-    if (info.state === 'wake') events.push({ t, type: 'chime' });
+    if (info.state === 'wake' && recording) events.push({ t, type: 'chime' });
     if (info.state === 'book' || lastState === 'book') console.log(`state ${lastState} -> ${info.state} at ${t.toFixed(2)}s`);
     // the intro chimes when it sees the hand, 2.2 s before the first level opens
     if (lastState === 'intro' && info.state === 'level') events.push({ t: t - 2.2, type: 'chime' });
     lastState = info.state;
   }
   if (info.level !== lastLabel) lastLabel = info.level;
+  lastInfo = info as Info;
+  if (!recording) return lastInfo;
   await page.screenshot({ path: `${outDir}/f${String(frame).padStart(5, '0')}.jpg`, type: 'jpeg', quality: 92 });
   frame++;
   captionAge += 1 / FPS;
   if (frame % 150 === 0) console.log(`frame ${frame} (${t.toFixed(1)}s) state ${info.state}/${info.level}`);
-  return info as { state: string; level: string; score: number };
+  return lastInfo;
 }
 
 function say(text: string) {
@@ -254,6 +273,97 @@ async function until(pred: (s: { state: string; level: string }) => boolean, max
   throw new Error(`timeout waiting; state ${lastState}/${lastLabel}`);
 }
 
+/** Make a creature's shadow until it is cast; give up early if the wolf starts to strike and `abortOnWindup`. */
+async function cast(id: string, abortOnWindup: boolean): Promise<'cast' | 'abort' | 'timeout'> {
+  const lv = LEVELS.find((l) => l.id === id)!;
+  const target = lv.hands.map((h) => shift(norm(h), [-0.06, 0.03, 0.0], [0, 0, 0]));
+  const from = hands;
+  const n0 = lastInfo.casts;
+  const reach = Math.round(0.45 * FPS);
+  for (let i = 1; i <= 2.5 * FPS; i++) {
+    const k = ease(Math.min(1, i / reach));
+    hands = target.map((b, idx) => lerpPose(from.find((f) => f.hand === b.hand) ?? from[idx] ?? REST[b.hand], b, k));
+    const s = await step();
+    if (s.casts > n0) return 'cast';
+    if (abortOnWindup && s.battle && s.battle.windup > 0 && !s.battle.warded) return 'abort';
+    if (!s.battle || s.battle.state !== 'fight') return 'timeout';
+  }
+  return 'timeout';
+}
+
+/** Let go of the shape so the same spell can be cast again. */
+async function release(sec = 0.35) {
+  await move(hands.length ? hands.map((h) => REST[h.hand]) : [REST.right], sec);
+}
+
+async function playBattle() {
+  say('Chapter four: the Ink Wolf. Every shadow you know is now a spell.');
+  const t0 = frame / FPS;
+  const log0: { t: number; type: string }[] = await page.evaluate(() => (window as any).__shadowfolk.battleLog());
+  const battleT0 = [...log0].reverse().find((e) => e.type === 'battle')?.t ?? 0;
+  const nLog0 = log0.length;
+  await hold(1.6);
+  const attacks = ['bird', 'dog', 'owl', 'crocodile', 'bat', 'dog', 'hare', 'crocodile', 'turkey', 'dog', 'bird', 'crocodile'];
+  const firstSay: Record<string, string> = {
+    bird: 'Make a shape and hold it: the creature flies at the wolf.',
+    dog: 'The dog and the crocodile hit twice as hard.',
+  };
+  let a = 0, windups = 0, hurtShown = false, healed = false, webbed = false;
+  for (let n = 0; n < 40; n++) {
+    const bs = lastInfo.battle;
+    if (!bs || bs.state !== 'fight') break;
+    if (bs.windup > 0 && !bs.warded) {
+      windups++;
+      if (windups === 2 && !hurtShown) {
+        say('Too slow, and the wolf bites out one of your three flames.');
+        await release(0.3);
+        await until((s) => !s.battle || s.battle.windup === 0, 4);
+        hurtShown = true;
+        await hold(0.6);
+        continue;
+      }
+      say('Red eyes: it is about to bite. The starfish blocks.');
+      await cast('moth', false);
+      await release();
+      continue;
+    }
+    if (hurtShown && !healed && bs.flames < 3) {
+      say('The deer lights the flame again.');
+      await cast('deer', true);
+      healed = true;
+      await release();
+      continue;
+    }
+    if (!webbed && a === 3) {
+      say('The spider’s web slows the wolf down.');
+      await cast('spider', true);
+      webbed = true;
+      await release();
+      continue;
+    }
+    const id = attacks[a++ % attacks.length];
+    if (firstSay[id] && a <= 2) say(firstSay[id]);
+    await cast(id, true);
+    await release();
+  }
+  say('Your shadows chase it into the night.');
+  await until((s) => s.state !== 'battle' || !s.battle || s.battle.state === 'won', 10);
+  await hold(3.2);
+  // cut the rest of the victory
+  recording = false;
+  await until((s) => s.state !== 'battle', 10);
+  recording = true;
+  // the battle's sound cues, moved onto the video's clock
+  const log: { t: number; type: string }[] = await page.evaluate(() => (window as any).__shadowfolk.battleLog());
+  const end = frame / FPS;
+  for (const e of log.slice(nLog0 - 1)) {
+    const t = t0 + (e.t - battleT0);
+    if (t >= t0 && t < end) events.push({ t, type: e.type });
+  }
+  if (!events.some((e) => e.type === 'calm' && e.t >= t0)) events.push({ t: end, type: 'calm' });
+  console.log(`battle: ${(end - t0).toFixed(1)} s on camera`);
+}
+
 const TITLE = `<h1>Shadowfolk</h1><p>A hands-only shadow puppet game for Meta Quest</p>`;
 
 if (XR) {
@@ -267,10 +377,15 @@ if (XR) {
   if (!(await page.evaluate(() => (window as any).__shadowfolk.state().xr))) throw new Error('XR session did not start');
   console.log('XR session started in IWER');
 }
-if (ONLY_POKE || ONLY_PUZZLES) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+if (ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
 
 try {
   if (ONLY_POKE) throw new Error('skip-story');
+  if (ONLY_BATTLE) {
+    await until((s) => s.state === 'battle', 8);
+    await playBattle();
+    throw new Error('battle only');
+  }
   if (!ONLY_PUZZLES) {
   // A. title card over the sleeping paper
   card = { html: TITLE, alpha: 0 };
@@ -294,8 +409,8 @@ try {
     bird: 'Some shadows need both hands.',
     deer: 'Every target is a real hand pose.',
     turkey: 'Chapter two brings new shapes.',
-    bat: 'Turn the bird upside down, and it hangs like a bat.',
-    owl: 'When a creature wakes, its eye opens.',
+    bat: 'Chapter two: turn the bird upside down, and it hangs like a bat.',
+    owl: 'Every target is a real hand pose. When a creature wakes, its eye opens.',
     spider: 'Ten story shadows teach the shapes.',
   };
   const offsets: Record<string, { d: V3; r: V3 }> = {
@@ -322,10 +437,14 @@ try {
     void id;
   }
 
+  /** Played off camera to keep the video under three minutes. */
+  const offCamera = new Set(['hare', 'deer', 'turkey', 'spider']);
   if (!ONLY_PUZZLES) {
     for (const lv of LEVELS) {
+      recording = !offCamera.has(lv.id);
       await playLevel(lv.id, lv.hands, captions[lv.id], offsets[lv.id]);
     }
+    recording = true;
   }
 
   // C2. chapter three: shadow puzzles, solved by the scripted moves in tools/puzzle-moves.ts
@@ -349,22 +468,26 @@ try {
   const fliesEnd = await follow(fliesPose, (s) => s.level !== 'puzzle-fireflies' || (s as any).puzzleDone, 50);
   console.log('fireflies', JSON.stringify(fliesEnd));
   await move([REST.right], 1.0);
-  await until((s) => s.state === 'level', 8);
   if (ONLY_PUZZLES) throw new Error('skip-story');
+
+  // C3. chapter four: the Ink Wolf, a spell battle
+  await until((s) => s.state === 'battle', 8);
+  await playBattle();
+  await until((s) => s.state === 'level', 10);
 
   // C. daily shadow
   const daily = dailyLevel(dayNumber());
   await playLevel(daily.id, daily.hands, 'Then a new shadow wakes every day. Keep your streak.');
 
 } catch (e) {
-  if ((e as Error).message !== 'skip-story') {
+  if ((e as Error).message !== 'skip-story' && (e as Error).message !== 'battle only') {
     console.log('FAIL', (e as Error).message);
     errors.push((e as Error).message);
   }
 }
 
 try {
-  if (ONLY_PUZZLES) throw new Error('puzzles only');
+  if (ONLY_PUZZLES || ONLY_BATTLE) throw new Error('puzzles only');
   // D. poke buttons on the tray: Book, then Gentle
   say('Every button is a fingertip poke. No controllers.');
   await move([REST.right], 0.3, (k) => (pitch = -38 * ease(k)));

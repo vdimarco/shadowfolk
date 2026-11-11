@@ -203,7 +203,10 @@ export class NightWorld {
       new ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: { uHorizon: { value: HORIZON } } }),
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = FLOOR_Y;
+    // keep the disc's center vertex away from the spot under the viewer: a vertex
+    // there has a view depth of exactly zero when the head is level, and some
+    // renderers clip those triangles wrong
+    ground.position.set(0, FLOOR_Y, -4);
     this.root.add(ground);
 
     // forest silhouette: two rings of pines, never in front of the stage
