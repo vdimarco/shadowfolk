@@ -18,6 +18,7 @@ import {
 } from './silhouette.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
+import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free';
@@ -50,6 +51,7 @@ declare global {
 export class GameSystem extends createSystem({}) {
   private theater!: Theater;
   private handViz = new HandViz();
+  private skinned: SkinnedHands | null = null;
   /** Faint golden hand that shows the pose, placed where the player's hand should go. */
   private guide = new HandViz(
     new MeshBasicMaterial({
@@ -118,6 +120,12 @@ export class GameSystem extends createSystem({}) {
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
     this.theater.root.add(this.handViz.root, this.guide.root);
+    // real hand models only where we draw simulated hands (desktop demo and capture)
+    const params = new URLSearchParams(location.search);
+    if (params.has('demo') || params.has('capture')) {
+      this.skinned = new SkinnedHands();
+      this.theater.root.add(this.skinned.root);
+    }
     this.demo = new URLSearchParams(location.search).has('demo');
 
     this.cleanupFuncs.push(
@@ -484,8 +492,16 @@ export class GameSystem extends createSystem({}) {
     this.readHands();
     this.checkButtons(dt);
     const simulated = !!this.simPoses || this.demo;
-    this.vizHands[0] = simulated && this.present.right ? this.joints.right : null;
-    this.vizHands[1] = simulated && this.present.left ? this.joints.left : null;
+    const showR = simulated && this.present.right;
+    const showL = simulated && this.present.left;
+    if (this.skinned?.loaded) {
+      this.skinned.update(showL ? this.joints.left : null, showR ? this.joints.right : null);
+      this.vizHands[0] = null;
+      this.vizHands[1] = null;
+    } else {
+      this.vizHands[0] = showR ? this.joints.right : null;
+      this.vizHands[1] = showL ? this.joints.left : null;
+    }
     this.handViz.update(this.vizHands);
 
     // live shadow from tracked hands
