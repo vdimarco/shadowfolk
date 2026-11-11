@@ -34,13 +34,15 @@ const SIDES_RL = ['right', 'left'] as const;
 
 interface DebugApi {
   setPoses(poses: HandPose[] | null): void;
-  state(): { state: State; level: string; score: number; found: string[]; hands: number; puzzleCount: number; puzzleDone: boolean };
+  state(): { state: State; level: string; score: number; found: string[]; hands: number; puzzleCount: number; puzzleDone: boolean; xr: boolean };
   press(id: string): void;
   reset(): void;
   /** Render the music offline and return it as base64 WAV, to check it without a headset. */
   renderMusic(seconds: number, cues?: { t: number; type: string }[]): Promise<string>;
-  /** Desktop only: tilt the view down (negative degrees) to show the button tray. */
+  /** Tilt the view down (negative degrees) to show the button tray: the camera on desktop, the emulated head in IWER. */
   setCameraPitch(deg: number): void;
+  /** Start the immersive session (used with the IWER emulator for recording). */
+  enterXR(): void;
   /** The poses of a story creature, by id, to test free play. */
   posesFor(id: string): HandPose[];
   /** Current target poses, shifted in position (meters) to test the matcher. */
@@ -87,6 +89,8 @@ export class GameSystem extends createSystem({}) {
   /** Frame-time watch: drop shadow resolution once if the headset falls behind. */
   private slowTime = 0;
   private lowQuality = false;
+  /** Capture mode steps a virtual clock at 30 fps, so the frame-time watch must stay off. */
+  private capture = new URLSearchParams(location.search).has('capture');
   /** Free play: one matcher per creature the player has found. */
   private freeCands: { level: Level; m: Matcher }[] = [];
   private freePlay = false;
@@ -536,7 +540,7 @@ export class GameSystem extends createSystem({}) {
   update(delta: number, time: number): void {
     const dt = Math.min(delta, 0.05);
     // a safety net for the headset: if frames stay slow for 3 s, halve the shadow textures
-    if (!this.lowQuality && this.world.session) {
+    if (!this.lowQuality && this.world.session && !this.capture) {
       this.slowTime = delta > 1 / 55 ? this.slowTime + delta : Math.max(0, this.slowTime - delta);
       if (this.slowTime > 3) {
         this.lowQuality = true;
@@ -1109,6 +1113,7 @@ export class GameSystem extends createSystem({}) {
         score: this.score,
         found: [...this.progress.found],
         hands: (this.present.left ? 1 : 0) + (this.present.right ? 1 : 0),
+        xr: !!this.world.session,
       }),
       press: (id) => this.press(id),
       renderMusic: async (seconds, cues) => {
@@ -1118,7 +1123,13 @@ export class GameSystem extends createSystem({}) {
         return btoa(bin);
       },
       setCameraPitch: (deg) => {
-        this.world.camera.rotation.set((deg * Math.PI) / 180, 0, 0, 'YXZ');
+        const iwer = (window as unknown as { __iwer?: { quaternion: { set(x: number, y: number, z: number, w: number): unknown } } }).__iwer;
+        const a = (deg * Math.PI) / 180;
+        if (iwer && this.world.session) iwer.quaternion.set(Math.sin(a / 2), 0, 0, Math.cos(a / 2));
+        else this.world.camera.rotation.set(a, 0, 0, 'YXZ');
+      },
+      enterXR: () => {
+        if (this.world.xrEnabled) this.world.launchXR();
       },
       posesFor: (id) => LEVELS.find((l) => l.id === id)?.hands ?? [],
       targetPoses: (dx, dy) =>

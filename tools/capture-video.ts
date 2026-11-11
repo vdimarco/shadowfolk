@@ -117,6 +117,8 @@ await page.addInitScript(() => {
   };
 });
 const ONLY_POKE = !!process.env.ONLY_POKE;
+/** XR=1: record inside IWER, Meta's WebXR emulator, as an emulated Quest 3 in an immersive session. */
+const XR = !!process.env.XR;
 const ONLY_PUZZLES = !!process.env.ONLY_PUZZLES;
 if (ONLY_PUZZLES) {
   // test mode: start right after chapter two and run the puzzle scenes only
@@ -133,7 +135,7 @@ if (ONLY_POKE) {
     { d: dailyLevel(dayNumber()).id, day: dayNumber(), ids: LEVELS.map((l) => l.id) },
   );
 }
-await page.goto(url + (url.includes('?') ? '&' : '?') + 'capture=1');
+await page.goto(url + (url.includes('?') ? '&' : '?') + 'capture=1' + (XR ? '&iwer=1' : ''));
 for (let i = 0; i < 600 && !(await page.evaluate(() => !!(window as any).__shadowfolk)); i++) {
   await page.evaluate(() => (window as any).__advance(16));
   await page.waitForTimeout(20);
@@ -142,12 +144,12 @@ await page.evaluate((keep: boolean) => {
   if (!keep) (window as any).__shadowfolk.reset();
   const css = document.createElement('style');
   css.textContent = `
-    #sf-band { position: fixed; left: 0; right: 0; bottom: 0; height: 22%; z-index: 19; pointer-events: none;
+    #sf-band { position: fixed; left: 0; right: 0; bottom: 0; height: 22%; z-index: 2147483645; pointer-events: none;
       background: linear-gradient(to top, rgba(4,3,4,.78), rgba(4,3,4,0)); }
-    #sf-cap { position: fixed; left: 0; right: 0; bottom: 6%; text-align: center; z-index: 20;
+    #sf-cap { position: fixed; left: 0; right: 0; bottom: 6%; text-align: center; z-index: 2147483646;
       font: italic 500 clamp(18px, 2.4vw, 46px) Georgia, serif; color: #f6e4c2;
       text-shadow: 0 2px 12px rgba(0,0,0,.9); pointer-events: none; }
-    #sf-card { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
+    #sf-card { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column;
       align-items: center; justify-content: center; background: rgba(6,4,6,.93); color: #f6e4c2;
       font-family: Georgia, serif; text-align: center; pointer-events: none; }
     #sf-card h1 { font: italic 600 clamp(48px, 7vw, 140px) Georgia, serif; margin: 0 0 .2em; letter-spacing: .01em; }
@@ -254,6 +256,17 @@ async function until(pred: (s: { state: string; level: string }) => boolean, max
 
 const TITLE = `<h1>Shadowfolk</h1><p>A hands-only shadow puppet game for Meta Quest</p>`;
 
+if (XR) {
+  // enter the immersive session before recording, without saving frames
+  await page.evaluate(() => (window as any).__shadowfolk.enterXR());
+  for (let i = 0; i < 120 && !(await page.evaluate(() => (window as any).__shadowfolk.state().xr)); i++) {
+    await page.evaluate(() => (window as any).__advance(33.3));
+    await page.waitForTimeout(20);
+  }
+  for (let i = 0; i < 15; i++) await page.evaluate(() => (window as any).__advance(33.3));
+  if (!(await page.evaluate(() => (window as any).__shadowfolk.state().xr))) throw new Error('XR session did not start');
+  console.log('XR session started in IWER');
+}
 if (ONLY_POKE || ONLY_PUZZLES) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
 
 try {
@@ -395,7 +408,7 @@ try {
   // E. end card
   say('');
   card = {
-    html: `<h1>Shadowfolk</h1><p>Seated. Hands only. A new shadow every day.</p><p style="margin-top:1.2em">Play in the Meta Quest Browser:<br><b>shadowfolk.vercel.app</b></p><small>Captured in a desktop browser with simulated hand poses.</small>`,
+    html: `<h1>Shadowfolk</h1><p>Seated. Hands only. A new shadow every day.</p><p style="margin-top:1.2em">Play in the Meta Quest Browser:<br><b>shadowfolk.vercel.app</b></p><small>${XR ? 'Recorded in IWER, the WebXR emulator in Meta’s Immersive Web SDK, as an emulated Meta Quest 3 with scripted hand poses.' : 'Captured in a desktop browser with simulated hand poses.'}</small>`,
     alpha: 0,
   };
   await hold(5.5, (k) => (card.alpha = Math.min(1, k / 0.15)));
