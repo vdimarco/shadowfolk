@@ -98,8 +98,8 @@ Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you,
 Play in the Meta Quest Browser: https://shadowfolk.vercel.app
 Source: https://github.com/vdimarco/shadowfolk
 
-Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competition 2026. This video was captured in a desktop browser with simulated hand poses.
+Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competition 2026. The two opening shots are AI-generated concept shots (made with Higgsfield) and are labeled on screen. All gameplay after them is the real game, captured in a desktop browser with simulated hand poses.
 
 Visibility: Public. Category: Gaming.
 
-To rebuild the video: run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` and `npx tsx tools/soundtrack.ts <frames-dir>/events.json soundtrack.wav`, and join them with ffmpeg.
+To rebuild the video: generate two 5-second 16:9 concept shots, then run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` and `python3 tools/assemble-video.py shotA.mp4 shotB.mp4 <frames-dir> out.mp4`.
