@@ -25,6 +25,8 @@ type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free';
 const HOLD_TIME = 0.7;
 const WAKE_TIME = 4.5;
 const INTRO_AREA = 120;
+const SIDES_LR = ['left', 'right'] as const;
+const SIDES_RL = ['right', 'left'] as const;
 
 interface DebugApi {
   setPoses(poses: HandPose[] | null): void;
@@ -60,6 +62,13 @@ export class GameSystem extends createSystem({}) {
     }),
   );
   private guideAlpha = 0;
+  /** The target shadow only needs a redraw when the level changes. */
+  private targetDirty = true;
+  /** Gentle mode: one matcher per hand of a two-hand shape, so one hand is enough. */
+  private halfMatchers: Matcher[] = [];
+  private halfSegs = new SegmentBuffer();
+  private activeMatcher: Matcher | null = null;
+  private stuckShown = false;
   /** Free play: one matcher per creature the player has found. */
   private freeCands: { level: Level; m: Matcher }[] = [];
   private freePlay = false;
@@ -156,11 +165,7 @@ export class GameSystem extends createSystem({}) {
         u.uLiveAlpha.value = 1;
         u.uMeter.value = 1;
         u.uThreshold.value = this.threshold();
-        this.ink(
-          [this.level.name],
-          wrap(this.level.hint, 52),
-          this.isDaily ? `Daily shadow  ·  streak ${this.progress.streak}` : `Shadow ${this.progressIndex() + 1} of ${LEVELS.length}`,
-        );
+        this.inkLevel(false);
         break;
       case 'wake':
         u.uTargetMode.value = 1;
@@ -247,6 +252,19 @@ export class GameSystem extends createSystem({}) {
     this.targetJoints = this.level.hands.map((h) => poseToJoints(h));
     this.mirrorJoints = this.level.hands.map((h) => poseToJoints(mirrorPose(h)));
     this.targetJoints.forEach((j, k) => projectHand(j, this.targetSegs, k * SEGS_PER_HAND));
+    this.targetDirty = true;
+    this.stuckShown = false;
+    this.halfMatchers = [];
+    if (this.targetJoints.length === 2) {
+      for (const j of this.targetJoints) {
+        this.halfSegs.clear();
+        projectHand(j, this.halfSegs, 0);
+        rasterize(this.halfSegs, this.tmask);
+        const hm = new Matcher();
+        hm.setTarget(this.tmask);
+        this.halfMatchers.push(hm);
+      }
+    }
     this.guideAlpha = 0;
     this.eyeBase = null;
     const eye = this.level.eye;
@@ -268,7 +286,10 @@ export class GameSystem extends createSystem({}) {
       this.progress.gentle = !this.progress.gentle;
       saveProgress(this.progress);
       this.applyContrast();
-      if (this.state === 'level') this.theater.wallMat.uniforms.uThreshold.value = this.threshold();
+      if (this.state === 'level') {
+        this.theater.wallMat.uniforms.uThreshold.value = this.threshold();
+        this.inkLevel(this.stuckShown);
+      }
       this.updateLabels();
       return;
     }
@@ -403,7 +424,7 @@ export class GameSystem extends createSystem({}) {
     for (const b of this.theater.buttons) {
       b.cooldown = Math.max(0, b.cooldown - dt);
       let touching = false;
-      for (const side of ['left', 'right'] as const) {
+      for (const side of SIDES_LR) {
         if (!this.present[side]) continue;
         const j = this.joints[side];
         const tx = j[9 * 3], ty = j[9 * 3 + 1], tz = j[9 * 3 + 2]; // index tip
@@ -469,7 +490,7 @@ export class GameSystem extends createSystem({}) {
 
     // live shadow from tracked hands
     this.live.clear();
-    for (const side of ['right', 'left'] as const) {
+    for (const side of SIDES_RL) {
       const slot = side === 'right' ? 0 : SEGS_PER_HAND;
       if (this.present[side]) projectHand(this.joints[side], this.live, slot, { forearm: true, shoulderX: side === 'right' ? 0.18 : -0.18 });
       else clearHand(this.live, slot);
@@ -500,8 +521,26 @@ export class GameSystem extends createSystem({}) {
       }
       case 'level': {
         u.uTargetAlpha.value = Math.min(1, this.stateTime / 1.2);
-        this.theater.target.render(renderer, this.targetSegs);
-        const raw = area > 0 ? this.matcher.score(this.mask, true) : 0;
+        if (this.targetDirty) {
+          this.theater.target.render(renderer, this.targetSegs);
+          this.targetDirty = false;
+        }
+        let raw = 0;
+        let m = this.matcher;
+        if (area > 0) {
+          if (this.oneHandOk()) {
+            // Gentle mode with one hand: either half of the shape counts
+            const st = shapeStats(this.mask);
+            for (const hm of this.halfMatchers) {
+              const sc = hm.scoreWithStats(this.mask, st, true);
+              if (sc > raw) {
+                raw = sc;
+                m = hm;
+              }
+            }
+          } else raw = this.matcher.score(this.mask, true);
+        }
+        this.activeMatcher = m;
         this.score += (raw - this.score) * Math.min(1, dt * 8);
         u.uScore.value = this.score;
         const thr = this.threshold();
@@ -509,11 +548,12 @@ export class GameSystem extends createSystem({}) {
         this.hold = raw >= thr ? this.hold + dt : Math.max(0, this.hold - dt * 2);
         u.uHold.value = Math.min(1, this.hold / HOLD_TIME);
         if (this.hold >= HOLD_TIME) {
-          const st = this.matcher.lastStats;
-          const ts = this.matcher.targetStats;
+          const am = this.activeMatcher ?? this.matcher;
+          const st = am.lastStats;
+          const ts = am.targetStats;
           const [px, py] = gridToWall(st.cx, st.cy);
           const [tx, ty] = gridToWall(ts.cx, ts.cy);
-          this.wakeFrom = { x: px - tx, y: py - ty, s: Math.sqrt(st.area / ts.area), mirror: this.matcher.lastMirrored };
+          this.wakeFrom = { x: px - tx, y: py - ty, s: Math.sqrt(st.area / ts.area), mirror: am.lastMirrored };
           this.wakeCenter = [tx, ty];
           this.enter('wake');
         }
@@ -639,13 +679,41 @@ export class GameSystem extends createSystem({}) {
     // a lone left hand on a right-hand shape: mirror the guide for that hand
     const mirror = this.level.hands.length === 1 && this.level.hands[0].hand === 'right' && this.present.left && !this.present.right;
     const src = mirror ? this.mirrorJoints : this.targetJoints;
-    this.guideHands[0] = show ? src[0] ?? null : null;
-    this.guideHands[1] = show ? src[1] ?? null : null;
+    if (this.oneHandOk()) {
+      // show only the half made by the hand the player is using
+      const side = this.present.right ? 'right' : 'left';
+      const k = this.level.hands.findIndex((h) => h.hand === side);
+      this.guideHands[0] = show && k >= 0 ? this.targetJoints[k] : null;
+      this.guideHands[1] = null;
+    } else {
+      this.guideHands[0] = show ? src[0] ?? null : null;
+      this.guideHands[1] = show ? src[1] ?? null : null;
+    }
+    // once the guide is fully up, point a stuck player at the tray
+    if (this.state === 'level' && !this.stuckShown && this.guideAlpha > 0.9) {
+      this.stuckShown = true;
+      this.inkLevel(true);
+    }
     this.guide.update(this.guideHands);
     this.guide.material.opacity = 0.55 * this.guideAlpha;
   }
   private introDone = false;
   private wasImmersive = false;
+
+  /** Gentle mode accepts one hand on a two-hand shape. */
+  private oneHandOk() {
+    return this.progress.gentle && this.halfMatchers.length === 2 && this.present.left !== this.present.right;
+  }
+
+  private inkLevel(stuck: boolean) {
+    const twoHands = this.level.hands.length === 2;
+    const hint = this.level.hint + (twoHands && this.progress.gentle ? ' Gentle mode: one hand is enough.' : '');
+    const where = this.isDaily ? `Daily shadow  ·  streak ${this.progress.streak}` : `Shadow ${this.progressIndex() + 1} of ${LEVELS.length}`;
+    let foot = where;
+    if (stuck) foot = 'Stuck? Look down: poke Gentle or Skip on the tray.';
+    else if (!this.isDaily && this.progress.level === 0) foot = `${where}  ·  Look down for the tray: Book, Gentle, Skip`;
+    this.ink([this.level.name], wrap(hint, 52), foot);
+  }
 
   // ---------------------------------------------------------------- ink
 

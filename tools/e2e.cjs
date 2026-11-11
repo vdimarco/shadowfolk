@@ -25,6 +25,17 @@ const { chromium } = require('playwright');
     for (let i = 0; i < 20; i++) {
       if ((await st()).level.startsWith('daily-')) break;
       const s0 = await st();
+      if (s0.level === 'bird') {
+        // Gentle mode: one hand is enough for a two-hand shape
+        await p.evaluate(() => {
+          const sf = window.__shadowfolk;
+          sf.press('gentle');
+          sf.setPoses([sf.targetPoses(0.03, 0.02)[0]]);
+        });
+        const sw = await waitState((s) => s.state === 'wake', 60000);
+        console.log(`bird: woke with one hand in Gentle mode (score ${sw.score.toFixed(2)})`);
+        await p.evaluate(() => window.__shadowfolk.press('gentle'));
+      }
       // move the target pose a little to prove the matcher ignores position
       await p.evaluate(() => window.__shadowfolk.setPoses(window.__shadowfolk.targetPoses(0.03, 0.02)));
       const s1 = await waitState((s) => s.state === 'wake', 60000);
