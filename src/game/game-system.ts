@@ -15,13 +15,16 @@ import {
   SegmentBuffer,
   shapeStats,
   SEGS_PER_HAND,
+  WALL_H,
+  WALL_W,
 } from './silhouette.js';
+import { FireflyPuzzle, PUZZLES, RainPuzzle } from './puzzles.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
 import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
 
-type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free';
+type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle';
 
 const HOLD_TIME = 0.7;
 const WAKE_TIME = 4.5;
@@ -73,6 +76,12 @@ export class GameSystem extends createSystem({}) {
   private halfSegs = new SegmentBuffer();
   private activeMatcher: Matcher | null = null;
   private stuckShown = false;
+  /** Chapter three: the running shadow puzzle. */
+  private rain: RainPuzzle | null = null;
+  private flies: FireflyPuzzle | null = null;
+  private puzzleMask = new Uint8Array(GRID_W * GRID_H);
+  private puzzleCount = -1;
+  private puzzleDoneAt = -1;
   /** Free play: one matcher per creature the player has found. */
   private freeCands: { level: Level; m: Matcher }[] = [];
   private freePlay = false;
@@ -217,6 +226,19 @@ export class GameSystem extends createSystem({}) {
           `Found ${this.progress.found.length}  ·  streak ${this.progress.streak}`,
         );
         break;
+      case 'puzzle': {
+        const info = PUZZLES[this.progress.puzzle];
+        u.uTargetAlpha.value = 0;
+        u.uMeter.value = 0;
+        u.uLiveAlpha.value = 1;
+        this.rain = info.id === 'rain' ? new RainPuzzle(this.progress.gentle) : null;
+        this.flies = info.id === 'fireflies' ? new FireflyPuzzle(this.progress.gentle) : null;
+        u.uDotKind.value = this.flies ? 1 : 0;
+        this.puzzleCount = -1;
+        this.puzzleDoneAt = -1;
+        this.inkPuzzle();
+        break;
+      }
       case 'free':
         this.freePlay = true;
         this.isDaily = false;
@@ -245,6 +267,9 @@ export class GameSystem extends createSystem({}) {
       this.isDaily = false;
       this.level = LEVELS[this.progress.level];
       this.enter('level');
+    } else if ((this.progress.puzzle ?? 0) < PUZZLES.length) {
+      this.isDaily = false;
+      this.enter('puzzle');
     } else if (this.progress.dailyDay !== dayNumber()) {
       this.startDaily();
     } else {
@@ -329,6 +354,11 @@ export class GameSystem extends createSystem({}) {
         if (this.progress.dailyDay === dayNumber()) this.enter('free');
         else this.startDaily();
       } else if (this.state === 'free') this.enter('finale');
+      else if (this.state === 'puzzle') {
+        this.progress.puzzle = (this.progress.puzzle ?? 0) + 1;
+        saveProgress(this.progress);
+        this.startNextLevel();
+      }
       else if (this.state === 'level') {
         // skip: move on without marking the shape found
         if (!this.isDaily && this.progress.level < LEVELS.length) {
@@ -534,6 +564,7 @@ export class GameSystem extends createSystem({}) {
 
     this.updateGuide(dt);
     u.uEye.value.w = 0;
+    if (this.state !== 'puzzle') u.uDotCount.value = 0;
 
     switch (this.state) {
       case 'intro': {
@@ -616,9 +647,116 @@ export class GameSystem extends createSystem({}) {
       case 'free':
         this.updateFree(dt, area);
         break;
+      case 'puzzle':
+        this.updatePuzzle(dt);
+        break;
       default:
         break;
     }
+  }
+
+  /** Chapter three: step the puzzle with the full shadow (forearm included) as solid ground. */
+  private updatePuzzle(dt: number) {
+    const u = this.theater.wallMat.uniforms;
+    if (this.present.left || this.present.right) rasterize(this.live, this.puzzleMask, false);
+    else this.puzzleMask.fill(0);
+    const p = this.rain ?? this.flies;
+    if (!p) return;
+    p.step(dt, this.puzzleMask);
+    // hand the dots to the wall shader: x, y, radius, brightness
+    const dots = this.rain ? this.rain.drops : this.flies!.flies;
+    const arr = u.uDots.value as Float32Array;
+    let n = 0;
+    for (const d of dots) {
+      if (!d.alive || n >= 32) continue;
+      const glow = this.flies ? 0.75 + 0.25 * Math.sin(d.phase * 2.3) : 1;
+      arr[n * 4] = d.x;
+      arr[n * 4 + 1] = d.y;
+      arr[n * 4 + 2] = this.flies ? 0.013 : 0.0105;
+      arr[n * 4 + 3] = glow;
+      n++;
+    }
+    u.uDotCount.value = n;
+    const count = this.rain ? this.rain.collected : this.flies!.caught;
+    if (count !== this.puzzleCount) {
+      if (count > this.puzzleCount && this.puzzleCount >= 0) this.sfx.tap();
+      this.puzzleCount = count;
+      this.inkPuzzle();
+    }
+    if (this.puzzleDoneAt < 0 && p.solved) {
+      this.puzzleDoneAt = this.stateTime;
+      this.sfx.chime();
+      this.inkPuzzle();
+    }
+    if (this.puzzleDoneAt >= 0 && this.stateTime - this.puzzleDoneAt > 4) {
+      this.progress.puzzle = (this.progress.puzzle ?? 0) + 1;
+      saveProgress(this.progress);
+      this.startNextLevel();
+    }
+  }
+
+  private inkPuzzle() {
+    const info = PUZZLES[this.progress.puzzle] ?? PUZZLES[0];
+    const done = this.puzzleDoneAt >= 0;
+    const goal = this.rain ? this.rain.goal : this.flies?.goal ?? 0;
+    const count = Math.max(0, this.puzzleCount);
+    const what = this.rain ? 'drops in the cup' : 'fireflies in the jar';
+    this.ink(
+      [info.name],
+      wrap(done ? info.done : info.hint, 52),
+      `Puzzle ${this.progress.puzzle + 1} of ${PUZZLES.length}  ·  ${Math.min(count, goal)} of ${goal} ${what}`,
+    );
+    // ink the props onto the paper
+    const g = this.theater.ink.getContext('2d')!;
+    const X = (x: number) => ((x + WALL_W / 2) / WALL_W) * 1024;
+    const Y = (y: number) => ((WALL_H / 2 - y) / WALL_H) * 704;
+    const S = 1024 / WALL_W;
+    g.save();
+    g.strokeStyle = '#000';
+    g.fillStyle = '#000';
+    g.lineWidth = 5;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    if (this.rain) {
+      const c = this.rain.cloud;
+      g.globalAlpha = 0.55;
+      for (const [dx, dy, r] of [[-0.07, 0, 0.04], [0, 0.02, 0.055], [0.07, 0, 0.042], [0.03, -0.015, 0.04], [-0.035, -0.015, 0.038]]) {
+        g.beginPath();
+        g.arc(X(c.x + dx), Y(c.y + 0.04 + dy), r * S, 0, Math.PI * 2);
+        g.fill();
+      }
+      const k = this.rain.cup;
+      g.globalAlpha = 0.85;
+      g.beginPath();
+      g.moveTo(X(k.x - k.w / 2), Y(k.y + k.h / 2));
+      g.lineTo(X(k.x - k.w / 2 + 0.015), Y(k.y - k.h / 2));
+      g.lineTo(X(k.x + k.w / 2 - 0.015), Y(k.y - k.h / 2));
+      g.lineTo(X(k.x + k.w / 2), Y(k.y + k.h / 2));
+      g.stroke();
+      // water level
+      const f = Math.min(1, count / goal);
+      if (f > 0) {
+        g.globalAlpha = 0.35;
+        const top = k.y - k.h / 2 + k.h * 0.85 * f;
+        const bottom = k.y - k.h / 2;
+        g.fillRect(X(k.x - k.w / 2 + 0.018), Y(top), (k.w - 0.036) * S, Y(bottom) - Y(top));
+      }
+    }
+    if (this.flies) {
+      const j = this.flies.jar;
+      g.globalAlpha = 0.85;
+      g.beginPath();
+      g.ellipse(X(j.x), Y(j.y), j.r * S, j.r * S * 1.15, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(X(j.x - j.r * 0.6), Y(j.y + j.r * 1.15));
+      g.lineTo(X(j.x - j.r * 0.6), Y(j.y + j.r * 1.4));
+      g.lineTo(X(j.x + j.r * 0.6), Y(j.y + j.r * 1.4));
+      g.lineTo(X(j.x + j.r * 0.6), Y(j.y + j.r * 1.15));
+      g.stroke();
+    }
+    g.restore();
+    this.theater.inkTex.needsUpdate = true;
   }
 
   private buildFreeCands() {
@@ -924,7 +1062,7 @@ export class GameSystem extends createSystem({}) {
       },
       state: () => ({
         state: this.state,
-        level: this.level.id,
+        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.level.id,
         score: this.score,
         found: [...this.progress.found],
         hands: (this.present.left ? 1 : 0) + (this.present.right ? 1 : 0),
@@ -943,7 +1081,7 @@ export class GameSystem extends createSystem({}) {
       targetPoses: (dx, dy) =>
         this.level.hands.map((h) => ({ ...h, pos: [h.pos[0] + dx, h.pos[1] + dy, h.pos[2]] as [number, number, number] })),
       reset: () => {
-        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0 };
+        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0 };
         saveProgress(this.progress);
         this.applyContrast();
         this.enter('intro');

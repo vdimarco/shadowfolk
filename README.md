@@ -32,6 +32,7 @@ The site also has a web app manifest and icons. If it is later packaged for the 
 - The matcher compares your shadow with the target. It ignores position and size, and it accepts mirrored shapes, so left-handed players get the same game.
 - `src/game/theater.ts`: the paper wall shader, the room, and the button tray.
 - `src/game/game-system.ts`: hand tracking, game states, the creature animations, and the Shadow Book.
+- `src/game/puzzles.ts`: chapter three shadow puzzles (rain into a cup, fireflies into a jar). The player's shadow is solid ground on the paper. `tools/test-puzzles.ts` checks them with drawn shadows.
 - `src/game/daily.ts`: a new shape each day from a date seed. The book keeps a daily streak.
 
 All sound is made with WebAudio. The game uses no image, audio, or model files.

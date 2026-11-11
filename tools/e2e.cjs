@@ -23,6 +23,13 @@ const { chromium } = require('playwright');
     await waitState((s) => s.state === 'level', 60000);
     console.log('intro -> level ok');
     for (let i = 0; i < 20; i++) {
+      // chapter three puzzles: the physics has its own tests; step past them here
+      while ((await st()).state === 'puzzle') {
+        const ps = await st();
+        console.log(`${ps.level}: opened, skipping`);
+        await p.evaluate(() => window.__shadowfolk.press('next'));
+        await p.waitForTimeout(500);
+      }
       if ((await st()).level.startsWith('daily-')) break;
       const s0 = await st();
       if (s0.level === 'bird') {

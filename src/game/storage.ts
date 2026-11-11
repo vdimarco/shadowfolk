@@ -4,10 +4,12 @@ export interface Progress {
   gentle: boolean;
   dailyDay: number;
   streak: number;
+  /** Chapter three: index of the next shadow puzzle. */
+  puzzle: number;
 }
 
 const KEY = 'shadowfolk.v1';
-const DEFAULTS: Progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0 };
+const DEFAULTS: Progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0 };
 
 export function loadProgress(): Progress {
   try {

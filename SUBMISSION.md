@@ -27,7 +27,7 @@ Hand shadow puppets are one of the oldest games people play with their hands. Yo
 
 You sit in front of a paper screen in a dark room. A lamp is behind you. When you lift your hands, their shadows fall on the paper, with soft edges that grow when your hands move closer to the lamp. A golden line on the paper shows the shape of a sleeping creature. Make that shape with your hands, hold it, and the creature wakes up: the moth flutters to the lamp, the hare hops away, the bird flies into the night.
 
-Ten story shadows in two chapters teach the classic shapes, from one open hand to two-hand creatures. If you get stuck, a faint golden hand appears at the spot where your hand should go, already in the right pose, and you put your hand inside it. When a creature wakes, a glowing eye opens on its shadow. After the story, a new shadow comes each day, and the Shadow Book keeps your collection and your daily streak.
+Ten story shadows in two chapters teach the classic shapes, from one open hand to two-hand creatures. If you get stuck, a faint golden hand appears at the spot where your hand should go, already in the right pose, and you put your hand inside it. When a creature wakes, a glowing eye opens on its shadow. Chapter three turns the shadow solid: in shadow puzzles you make a slide with your hand to guide rain into a cup, and you herd fireflies, which flee from shadow, into a jar. After the story, a new shadow comes each day, and the Shadow Book keeps your collection and your daily streak.
 
 ### How we built it
 
@@ -42,7 +42,7 @@ Ten story shadows in two chapters teach the classic shapes, from one open hand t
 - Hands-first: the full game, from start to the daily shadow, uses hands only. The three buttons are brass buttons you poke on a tray in front of you.
 - Seated: every interaction is within a two-foot radius of your chest.
 - Short sessions: the first shadow appears on the paper in the first seconds. One creature takes about a minute. Progress saves on each creature, so you can stop at any time.
-- Accessibility: no time limits, mirror-free matching for either hand, a guide hand that shows each pose in place, and a Gentle mode that lowers the match level, shows the guide hand sooner, and switches to a high-contrast paper.
+- Accessibility: no time limits, mirror-free matching for either hand, one-hand play for every two-hand shape in Gentle mode, a guide hand that shows each pose in place, and a Gentle mode that lowers the match level, shows the guide hand sooner, and switches to a high-contrast paper.
 
 ### What is next
 

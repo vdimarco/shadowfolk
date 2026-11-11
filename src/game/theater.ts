@@ -170,6 +170,9 @@ uniform float uHold;
 uniform float uMeter;
 uniform float uContrast;     // 0 = warm paper, 1 = high contrast
 uniform vec4 uEye;           // creature eye: x, y, radius, alpha
+uniform vec4 uDots[32];      // puzzle dots: x, y, radius, brightness
+uniform int uDotCount;
+uniform float uDotKind;      // 0 = raindrops, 1 = fireflies
 varying vec2 vUv;
 
 float cov(sampler2D t, vec2 uv) { return 1.0 - texture2D(t, uv).r; }
@@ -210,6 +213,23 @@ void main() {
   vec3 gold = mix(vec3(1.0, 0.72, 0.3), vec3(0.95, 0.55, 0.0), uContrast);
   float pulse = 0.75 + 0.25 * sin(uTime * 2.4);
   col = mix(col, gold * (1.1 + uHold), guide * pulse * (0.55 + 0.45 * (1.0 - live)));
+
+  // puzzle dots: ink-blue raindrops or glowing fireflies
+  for (int i = 0; i < 32; i++) {
+    if (i >= uDotCount) break;
+    vec4 d = uDots[i];
+    float dd = length(p - d.xy);
+    if (uDotKind < 0.5) {
+      float a = 1.0 - smoothstep(d.z * 0.75, d.z, length((p - d.xy) * vec2(1.0, 0.8)));
+      col = mix(col, mix(vec3(0.16, 0.3, 0.55), vec3(0.05, 0.1, 0.2), uContrast) * lit, a * 0.9);
+      float hl = 1.0 - smoothstep(0.0, d.z * 0.35, length(p - d.xy - vec2(-d.z * 0.3, d.z * 0.3)));
+      col += vec3(0.7, 0.85, 1.0) * hl * a * 0.45;
+    } else {
+      float core = 1.0 - smoothstep(d.z * 0.25, d.z * 0.6, dd);
+      float halo = exp(-dd * dd / (d.z * d.z * 6.0));
+      col += vec3(1.0, 0.86, 0.38) * (core * 1.1 + halo * 0.55) * d.w;
+    }
+  }
 
   // a glowing eye on the awake creature
   if (uEye.w > 0.0) {
@@ -288,6 +308,9 @@ export class Theater {
         uMeter: { value: 0 },
         uContrast: { value: 0 },
         uEye: { value: new Vector4(0, 0, 0.01, 0) },
+        uDots: { value: new Float32Array(32 * 4) },
+        uDotCount: { value: 0 },
+        uDotKind: { value: 0 },
       },
     });
     const wall = new Mesh(new PlaneGeometry(WALL_W, WALL_H), this.wallMat);
