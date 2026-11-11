@@ -17,7 +17,7 @@ export const LIGHT: [number, number, number] = [0, -0.3, 0.2];
 export const LIGHT_SIZE = 0.018;
 
 /** Max 2D segments the shader accepts (2 hands * SEGS_PER_HAND). */
-export const SEGS_PER_HAND = 28;
+export const SEGS_PER_HAND = 32;
 export const MAX_SEGS = SEGS_PER_HAND * 2;
 
 /** [a, b, rA, rB] capsule list per hand, joint indices plus radii (meters). */
@@ -36,6 +36,12 @@ export const CAPSULES: [number, number, number, number][] = [
   [10, 16, 0.02, 0.016],
   [15, 21, 0.019, 0.014],
   [1, 6, 0.016, 0.013],
+  // soft tissue: the web between thumb and index, the fleshy outer palm
+  // under the little finger, and the thumb's base
+  [2, 6, 0.009, 0.008],
+  [20, 21, 0.017, 0.013],
+  [0, 20, 0.021, 0.018],
+  [1, 5, 0.018, 0.016],
   // thumb
   [1, 2, 0.015, 0.012],
   [2, 3, 0.012, 0.0105],

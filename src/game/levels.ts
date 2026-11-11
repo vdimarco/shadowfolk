@@ -23,10 +23,10 @@ const L = (p: Omit<HandPose, 'hand'>): HandPose => ({ hand: 'left', ...p });
 export const LEVELS: Level[] = [
   {
     id: 'moth',
-    name: 'The Moth',
+    name: 'The Starfish',
     hint: 'Raise one open hand. Spread your fingers wide.',
-    wake: 'The moth shakes off the dust and flutters to the lamp.',
-    motion: 'flutter',
+    wake: 'The starfish stretches its arms and drifts down to the sea floor.',
+    motion: 'drift',
     threshold: 0.66,
     eye: { joint: 11, dx: 0.0, dy: -0.02 },
     hands: [
@@ -51,9 +51,10 @@ export const LEVELS: Level[] = [
     hands: [
       R({
         pos: [0.08, -0.26, -0.42],
-        thumb: { out: 0.2, opp: 1, curl: 0.8 },
-        index: { splay: 12 },
-        middle: { splay: -10 },
+        rot: [0, 0, -18],
+        thumb: { out: 0.3, opp: 0.7, curl: 0.6 },
+        index: { splay: 9 },
+        middle: { splay: -7 },
         ring: 1,
         pinky: 1,
       }),
@@ -65,7 +66,7 @@ export const LEVELS: Level[] = [
     hint: 'Turn your hand on its side. Fingers together, thumb below. Open the jaw.',
     wake: 'Snap! The crocodile slides off down the river.',
     motion: 'snap',
-    threshold: 0.7,
+    threshold: 0.73,
     eye: { joint: 6, dx: 0.045, dy: 0.055 },
     hands: [
       R({
@@ -94,8 +95,8 @@ export const LEVELS: Level[] = [
         thumb: { out: 1, opp: 0, curl: 0 },
         index: { splay: 0, mcp: 5 },
         middle: { splay: 0, mcp: 5 },
-        ring: { splay: -3, mcp: 10 },
-        pinky: { splay: -48, mcp: 8, pip: 10 },
+        ring: { splay: -6, mcp: 10 },
+        pinky: { splay: -58, mcp: 8, pip: 10 },
       }),
     ],
   },
@@ -105,7 +106,7 @@ export const LEVELS: Level[] = [
     hint: 'Use both hands. Cross them at the wrists and hook your thumbs. Spread the wings.',
     wake: 'The bird beats its wings and flies into the night.',
     motion: 'fly',
-    threshold: 0.62,
+    threshold: 0.67,
     eye: { hand: 0, joint: 3, dx: 0.0, dy: -0.01 },
     hands: [
       R({
@@ -131,7 +132,7 @@ export const LEVELS: Level[] = [
   {
     id: 'deer',
     name: 'The Deer',
-    hint: 'Both hands up, wrists together. Spread every finger for the antlers.',
+    hint: 'Both hands up, wrists together, thumbs tucked in. Spread every finger wide for the antlers.',
     wake: 'The deer lifts its head, listens, and steps into the trees.',
     motion: 'drift',
     threshold: 0.62,
@@ -139,21 +140,21 @@ export const LEVELS: Level[] = [
     hands: [
       R({
         pos: [0.035, -0.27, -0.42],
-        rot: [0, 0, -28],
-        thumb: { out: 0.6, opp: 0.2 },
-        index: { splay: 16 },
-        middle: { splay: 4 },
-        ring: { splay: -8 },
-        pinky: { splay: -20 },
+        rot: [0, 0, -40],
+        thumb: { out: 0.2, opp: 0.8, curl: 0.8 },
+        index: { splay: 22 },
+        middle: { splay: 6 },
+        ring: { splay: -10 },
+        pinky: { splay: -28 },
       }),
       L({
         pos: [-0.035, -0.27, -0.42],
-        rot: [0, 0, 28],
-        thumb: { out: 0.6, opp: 0.2 },
-        index: { splay: 16 },
-        middle: { splay: 4 },
-        ring: { splay: -8 },
-        pinky: { splay: -20 },
+        rot: [0, 0, 40],
+        thumb: { out: 0.2, opp: 0.8, curl: 0.8 },
+        index: { splay: 22 },
+        middle: { splay: 6 },
+        ring: { splay: -10 },
+        pinky: { splay: -28 },
       }),
     ],
   },
@@ -193,7 +194,7 @@ export const LEVELS: Level[] = [
     hint: 'Make the bird again, then turn it upside down. Keep the fingers close for the wings.',
     wake: 'The bat drops from its perch and flits into the dark.',
     motion: 'flutter',
-    threshold: 0.64,
+    threshold: 0.67,
     eye: { hand: 0, joint: 3, dx: 0.0, dy: 0.01 },
     hands: [
       R({
