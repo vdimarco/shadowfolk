@@ -126,6 +126,26 @@ How the hands are used:
 Comfort and access: everything is seated, within about two feet of the chest. Gentle mode lowers the match level, accepts one hand for two-hand shapes, and uses high-contrast paper.
 ```
 
+## What Meta VR capability(ies) did you use in your project?
+
+```
+Hand tracking (all 25 joints per hand through WebXR Hand Input), Meta Immersive Web SDK (IWSDK) for WebXR, Meta Quest Browser immersive VR sessions, IWER (the IWSDK WebXR emulator) for testing and recording, Meta Web Launch (send the game from a phone or computer to a Quest), and a Horizon OS web app build (Trusted Web Activity) shared on a Meta release channel.
+```
+
+## What makes you excited about the future of VR? (150 words or less)
+
+```
+VR is starting to understand people as they are, not as controllers. With hand tracking, the oldest skills we have become input: pointing, poking, shaping, playing. Shadowfolk works because nobody has to learn it. A child, a grandparent or a first-time headset user already knows how to make a shadow rabbit, and the headset now knows it too.
+
+We are excited for VR that asks less of people and gives more back: games that you can play seated in a few minutes, that welcome different bodies and abilities, and that run from a simple link with no install. As hand and body tracking get more precise, and as headsets and glasses get lighter, we think the best VR will feel less like technology and more like play you already know.
+```
+
+## What is the target launch date for your app? (suggested answer)
+
+```
+Shadowfolk is already playable as a web app in the Meta Quest Browser (shadowfolk.vercel.app) and as a Horizon OS app on a Meta release channel. Our target for a public Meta Horizon Store launch is February 2027.
+```
+
 ## Hand interactions (optional field)
 
 Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. The hands are the only input: shapes come from finger curl, finger spread, and wrist turn; in the puzzles your hand and arm shadow is a solid slide or a wall; in the battle each shape you know is a spell; and buttons are poked with a fingertip. What excites us about the future of VR is input that feels like play from the first second. You do not learn Shadowfolk. You already know how to make a shadow rabbit.
