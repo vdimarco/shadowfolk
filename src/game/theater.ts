@@ -117,6 +117,10 @@ export class ShadowPass {
     this.scene.add(mesh);
   }
 
+  setSize(w: number, h: number) {
+    this.rt.setSize(w, h);
+  }
+
   render(renderer: WebGLRenderer, buf: SegmentBuffer) {
     const d = buf.data;
     const A = this.a.array as Float32Array;

@@ -33,7 +33,7 @@ const DT = 1 / 72;
 // Rain: a diagonal slide from under the cloud to above the cup
 {
   mask.fill(0);
-  bar(-0.64, 0.03, 0.34, -0.27, 0.03);
+  bar(-0.48, 0.03, 0.22, -0.27, 0.03);
   const p = new RainPuzzle(false);
   let t = 0;
   for (; t < 60 && !p.solved; t += DT) p.step(DT, mask);

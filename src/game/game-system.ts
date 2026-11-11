@@ -18,7 +18,7 @@ import {
   WALL_H,
   WALL_W,
 } from './silhouette.js';
-import { FireflyPuzzle, PUZZLES, RainPuzzle } from './puzzles.js';
+import { FireflyPuzzle, PUZZLES, RAIN_SOLUTION, RainPuzzle } from './puzzles.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
 import { SkinnedHands } from './skinned-hands.js';
@@ -82,6 +82,11 @@ export class GameSystem extends createSystem({}) {
   private puzzleMask = new Uint8Array(GRID_W * GRID_H);
   private puzzleCount = -1;
   private puzzleDoneAt = -1;
+  private rainSolution = poseToJoints(RAIN_SOLUTION);
+  private tipShown = false;
+  /** Frame-time watch: drop shadow resolution once if the headset falls behind. */
+  private slowTime = 0;
+  private lowQuality = false;
   /** Free play: one matcher per creature the player has found. */
   private freeCands: { level: Level; m: Matcher }[] = [];
   private freePlay = false;
@@ -236,6 +241,7 @@ export class GameSystem extends createSystem({}) {
         u.uDotKind.value = this.flies ? 1 : 0;
         this.puzzleCount = -1;
         this.puzzleDoneAt = -1;
+        this.tipShown = false;
         this.inkPuzzle();
         break;
       }
@@ -529,6 +535,17 @@ export class GameSystem extends createSystem({}) {
 
   update(delta: number, time: number): void {
     const dt = Math.min(delta, 0.05);
+    // a safety net for the headset: if frames stay slow for 3 s, halve the shadow textures
+    if (!this.lowQuality && this.world.session) {
+      this.slowTime = delta > 1 / 55 ? this.slowTime + delta : Math.max(0, this.slowTime - delta);
+      if (this.slowTime > 3) {
+        this.lowQuality = true;
+        this.theater.live.setSize(1024, 704);
+        this.theater.target.setSize(1024, 704);
+        this.targetDirty = true;
+        console.warn('[shadowfolk] frames are slow: shadow resolution lowered');
+      }
+    }
     this.anchor();
     const u = this.theater.wallMat.uniforms;
     u.uTime.value = time;
@@ -683,6 +700,10 @@ export class GameSystem extends createSystem({}) {
       this.puzzleCount = count;
       this.inkPuzzle();
     }
+    if (!this.tipShown && this.flies && this.stateTime > 20 && this.flies.caught < 3) {
+      this.tipShown = true;
+      this.inkPuzzle();
+    }
     if (this.puzzleDoneAt < 0 && p.solved) {
       this.puzzleDoneAt = this.stateTime;
       this.sfx.chime();
@@ -703,9 +724,10 @@ export class GameSystem extends createSystem({}) {
     const what = this.rain ? 'drops in the cup' : 'fireflies in the jar';
     this.ink(
       [info.name],
-      wrap(done ? info.done : info.hint, 52),
-      `Puzzle ${this.progress.puzzle + 1} of ${PUZZLES.length}  ·  ${Math.min(count, goal)} of ${goal} ${what}`,
+      wrap(done ? info.done : this.tipShown ? 'Tip: sweep an open hand from right to left, then lay it flat and press down over the jar.' : info.hint, 52),
+      '',
     );
+    void what;
     // ink the props onto the paper
     const g = this.theater.ink.getContext('2d')!;
     const X = (x: number) => ((x + WALL_W / 2) / WALL_W) * 1024;
@@ -755,6 +777,18 @@ export class GameSystem extends createSystem({}) {
       g.lineTo(X(j.x + j.r * 0.6), Y(j.y + j.r * 1.15));
       g.stroke();
     }
+    // the count sits just above the cup or jar, where the eyes already are
+    const prop = this.rain ? { x: this.rain.cup.x, y: this.rain.cup.y + this.rain.cup.h / 2 + 0.04 } : this.flies ? { x: this.flies.jar.x, y: this.flies.jar.y + this.flies.jar.r * 1.4 + 0.04 } : null;
+    if (prop) {
+      g.globalAlpha = 0.8;
+      g.font = '600 30px Georgia, serif';
+      g.textAlign = 'center';
+      g.fillText(`${Math.min(count, goal)} of ${goal}`, X(prop.x), Y(prop.y));
+    }
+    g.globalAlpha = 0.55;
+    g.font = '22px Georgia, serif';
+    g.textAlign = 'right';
+    g.fillText(`Puzzle ${this.progress.puzzle + 1} of ${PUZZLES.length}`, 1000, 690);
     g.restore();
     this.theater.inkTex.needsUpdate = true;
   }
@@ -844,8 +878,11 @@ export class GameSystem extends createSystem({}) {
       const wait = this.progress.gentle ? 1.5 : 6;
       if (this.stateTime > wait && this.hold === 0 && this.score < thr - 0.04) want = 1;
     }
+    // rain puzzle: after a while with no luck, show a slide that works
+    const rainHelp = this.state === 'puzzle' && !!this.rain && this.puzzleDoneAt < 0 && this.stateTime > (this.progress.gentle ? 6 : 12) && this.rain.collected < 2;
+    if (rainHelp) want = 1;
     this.guideAlpha += (want - this.guideAlpha) * Math.min(1, dt * (want ? 1.2 : 4));
-    const show = this.guideAlpha > 0.01 && this.targetJoints.length > 0;
+    const show = this.guideAlpha > 0.01 && (rainHelp || this.targetJoints.length > 0);
     // a lone left hand on a right-hand shape: mirror the guide for that hand
     const mirror = this.level.hands.length === 1 && this.level.hands[0].hand === 'right' && this.present.left && !this.present.right;
     const src = mirror ? this.mirrorJoints : this.targetJoints;
@@ -853,7 +890,11 @@ export class GameSystem extends createSystem({}) {
     this.guideHands[1] = null;
     this.guideSide[0] = null;
     this.guideSide[1] = null;
-    if (show) {
+    if (show && rainHelp) {
+      // the solution slide, in its real place: no following the wrist
+      this.guideHands[0] = this.rainSolution;
+      this.guideSide[0] = 'right';
+    } else if (show && this.state === 'level') {
       // which target hands to draw, and which real hand each one belongs to
       let n = 0;
       for (let k = 0; k < src.length; k++) {

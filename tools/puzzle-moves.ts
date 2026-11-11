@@ -11,7 +11,7 @@ const ease = (t: number) => {
 };
 
 /** Rain: a flat hand and forearm held as a long slide from under the cloud down toward the cup. */
-export function rainPose(t: number, p = { x: -0.16, y: -0.22, z: -0.42, roll: 66 }): HandPose[] {
+export function rainPose(t: number, p = { x: -0.12, y: -0.22, z: -0.42, roll: 54 }): HandPose[] {
   // rise into place over the first 1.5 s, then hold with a slight sway
   const k = ease(t / 1.5);
   return [

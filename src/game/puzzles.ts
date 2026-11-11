@@ -3,7 +3,20 @@
  * Pure 2D simulation in wall meters (origin at the wall center, +y up), so
  * Node tests can drive it with drawn masks. No Three.js, no DOM.
  */
+import type { HandPose } from './hand-model.js';
 import { GRID_H, GRID_W, WALL_H, WALL_W } from './silhouette.js';
+
+/** A hand and forearm held as a slide that fills the rain cup (planned in tools/plan-puzzles.ts). */
+export const RAIN_SOLUTION: HandPose = {
+  hand: 'right',
+  pos: [-0.12, -0.22, -0.42],
+  rot: [0, 0, 54],
+  thumb: { out: 0.05, opp: 0 },
+  index: { splay: 2 },
+  middle: { splay: 0 },
+  ring: { splay: -2 },
+  pinky: { splay: -4 },
+};
 
 export type PuzzleId = 'rain' | 'fireflies';
 
@@ -91,7 +104,7 @@ const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 // ------------------------------------------------------------------ rain
 
 export class RainPuzzle {
-  readonly cloud = { x: -0.56, y: 0.13, w: 0.18 };
+  readonly cloud: { x: number; y: number; w: number };
   readonly cup: { x: number; y: number; w: number; h: number };
   readonly goal: number;
   readonly drops: Dot[] = [];
@@ -100,10 +113,12 @@ export class RainPuzzle {
   private n: [number, number] = [0, 1];
   static readonly MAX = 24;
 
-  constructor(gentle: boolean, s = 7) {
+  constructor(gentle: boolean, s = 7, layout: { cloudX?: number; cupX?: number; cupW?: number } = {}) {
     seed = s;
-    this.cup = { x: 0.42, y: -0.42, w: gentle ? 0.22 : 0.16, h: 0.12 };
-    this.goal = gentle ? 10 : 15;
+    this.cloud = { x: layout.cloudX ?? -0.4, y: 0.06, w: 0.18 };
+    const w = layout.cupW ?? 0.24;
+    this.cup = { x: layout.cupX ?? 0.3, y: -0.42, w: gentle ? w + 0.06 : w, h: 0.12 };
+    this.goal = gentle ? 8 : 12;
     for (let i = 0; i < RainPuzzle.MAX; i++) this.drops.push({ x: 0, y: 0, vx: 0, vy: 0, alive: false, phase: 0 });
   }
 
