@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.shadowfolk",
+      "sha256_cert_fingerprints": ["68:6C:84:51:D8:0F:70:CA:A7:C2:76:FA:71:DD:E9:CB:AF:B5:09:DC:01:AC:D0:4A:36:13:F7:05:FB:33:EE:F5"]
+    }
+  }
+]
