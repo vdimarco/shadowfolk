@@ -340,13 +340,7 @@ export class Theater {
       this.root.add(leg);
     }
 
-    const floor = new Mesh(
-      new PlaneGeometry(8, 8),
-      new MeshStandardMaterial({ color: new Color(0.05, 0.035, 0.03), roughness: 0.95 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, -1.2, -1);
-    this.root.add(floor);
+    // the ground, stage and sky come from NightWorld (world.ts)
 
     // warm lamp light for the wood
     const lamp = new PointLight(new Color(1.0, 0.7, 0.4), 1.6, 4, 1.5);

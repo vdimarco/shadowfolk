@@ -23,6 +23,7 @@ import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
 import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
+import { NightWorld } from './world.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle';
 
@@ -58,6 +59,7 @@ declare global {
 export class GameSystem extends createSystem({}) {
   private theater!: Theater;
   private handViz = new HandViz();
+  private nightWorld!: NightWorld;
   private skinned: SkinnedHands | null = null;
   /** Faint golden hand that shows the pose, placed where the player's hand should go. */
   private guide = new HandViz(
@@ -154,6 +156,8 @@ export class GameSystem extends createSystem({}) {
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
     this.theater.root.add(this.handViz.root, this.guide.root, this.guideSkin.root);
+    this.nightWorld = new NightWorld();
+    this.theater.root.add(this.nightWorld.root);
     // real hand models only where we draw simulated hands (desktop demo and capture)
     const params = new URLSearchParams(location.search);
     if (params.has('demo') || params.has('capture')) {
@@ -553,6 +557,7 @@ export class GameSystem extends createSystem({}) {
     this.anchor();
     const u = this.theater.wallMat.uniforms;
     u.uTime.value = time;
+    this.nightWorld.update(time);
     if (this.paused) return;
     this.stateTime += dt;
 

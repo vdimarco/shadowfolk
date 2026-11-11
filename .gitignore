@@ -48,3 +48,6 @@ pids/
 .vercel/
 .vercel
 .env*
+
+# local test builds
+dist2/
