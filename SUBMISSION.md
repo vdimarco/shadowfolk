@@ -21,40 +21,41 @@ Your real hands cast shadows on a paper screen. Make the right shape and the sha
 
 ### Inspiration
 
-Hand shadow puppets are one of the oldest games people play with their hands. You need a lamp, a wall, and nothing else. Hand tracking on Quest gives us the same thing: 25 joints per hand, every frame. We wanted a game where your hands are not a pointer or a controller stand-in. Your hands are the game.
+Hand shadow puppets are one of the oldest games people play with their hands: a lamp, a wall, and nothing else. Quest hand tracking gives us 25 joints per hand, every frame. We wanted a game where your hands are not a pointer or a controller stand-in. Your hands are the game.
 
 ### What it is
 
-You sit in front of a paper screen in a dark room. A lamp is behind you. When you lift your hands, their shadows fall on the paper, with soft edges that grow when your hands move closer to the lamp. A golden line on the paper shows the shape of a sleeping creature. Make that shape with your hands, hold it, and the creature wakes up: the moth flutters to the lamp, the hare hops away, the bird flies into the night.
+You sit before a paper screen in a dark room, with a lamp behind you. Lift your hands, and their soft shadows fall on the paper. A golden line shows a sleeping creature. Make that shape, hold it, and the creature wakes: its eye opens, and the hare hops away, the crocodile slides down the river, the bird flies into the night.
 
-Ten story shadows in two chapters teach the classic shapes, from one open hand to two-hand creatures. If you get stuck, a faint golden hand appears at the spot where your hand should go, already in the right pose, and you put your hand inside it. When a creature wakes, a glowing eye opens on its shadow. Chapter three turns the shadow solid: in shadow puzzles you make a slide with your hand to guide rain into a cup, and you herd fireflies, which flee from shadow, into a jar. After the story, a new shadow comes each day, and the Shadow Book keeps your collection and your daily streak.
+- Ten story shadows in two chapters teach the classic shapes, from one open hand to two-hand creatures.
+- Stuck? A glowing golden hand appears on your own wrist, already in the pose, so you only turn your hand and set your fingers to match.
+- Chapter three makes your shadow solid. Hold your hand and arm as a slide to guide rain into a cup, and herd fireflies, which flee from shadow, into a jar.
+- After the story, a new shadow wakes every day. The Shadow Book keeps your collection and your daily streak, and free play lets any shadow you know wake its creature.
 
 ### How we built it
 
-- WebXR with the Immersive Web SDK (IWSDK), so it runs in the Quest browser with no install.
-- Each hand becomes 28 capsules built from the joint poses. We project each capsule from the lamp onto the wall, with a penumbra from the flame size. A small shader paints this into a texture each frame.
-- The same projected shapes go to a CPU matcher. It compares your shadow with the target and ignores position and size, so you can make the shape anywhere on the paper. It also accepts the mirrored shape, so left-handed players get the same game.
-- Every target is built from a pose model of a real hand, so every level is a shape a hand can make. Tests check that each level matches itself, matches when moved or mirrored, and rejects the other levels.
-- No art files. The paper, the light, and the sounds (fire crackle, a hum that rises as you get close, a chime when the creature wakes) are all code.
+- WebXR with the Immersive Web SDK, so it runs in the Quest browser with no install.
+- Each hand becomes 32 capsules (finger bones, palm, thumb web, forearm), projected from the lamp onto the wall with a penumbra from the flame size, and drawn as instanced quads into a high-resolution shadow texture.
+- A CPU matcher compares your shadow with the target. It ignores position and size, so you can make the shape anywhere, and it accepts the mirrored shape for left-handed players.
+- Every target comes from a pose model of a real hand. Tests check that each shape matches itself, matches when moved or mirrored, and rejects every other shape. Puzzle tests drive the physics with drawn shadows.
+- No art or audio files. The paper, the light, and a generative lullaby score with chimes in the current chord are all code.
 
-### Design for the competition guidelines
+### Design for the guidelines
 
-- Hands-first: the full game, from start to the daily shadow, uses hands only. The three buttons are brass buttons you poke on a tray in front of you.
+- Hands-first: the whole game uses hands only. The three buttons are brass buttons you poke on a tray.
 - Seated: every interaction is within a two-foot radius of your chest.
-- Short sessions: the first shadow appears on the paper in the first seconds. One creature takes about a minute. Progress saves on each creature, so you can stop at any time.
-- Accessibility: no time limits, mirror-free matching for either hand, one-hand play for every two-hand shape in Gentle mode, a guide hand that shows each pose in place, and a Gentle mode that lowers the match level, shows the guide hand sooner, and switches to a high-contrast paper.
+- Short sessions: your shadow appears in the first seconds, a creature takes about a minute, and progress saves on each one.
+- Accessibility: no time limits, either hand works, the guide shows each pose on your hand, and Gentle mode lowers the match level, accepts one hand for two-hand shapes, and switches to high-contrast paper.
 
 ### What is next
 
-Already in: a free play mode after the story, where any shadow from your Book wakes its creature.
-
-- More story chapters with new creatures and two-player shadow plays.
-- Shared daily shadow board for friends.
+- More chapters, and two-player shadow plays.
+- A shared daily shadow board for friends.
 - Meta VR Glasses support with a pinch-only mode.
 
 ## Hand interactions (optional field)
 
-Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. The hands are the only input: shapes come from finger curl, finger spread, and wrist turn, and buttons are poked with a fingertip. What excites us about the future of VR is input that feels like play from the first second. You do not learn Shadowfolk. You already know how to make a shadow rabbit.
+Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. The hands are the only input: shapes come from finger curl, finger spread, and wrist turn; in the puzzles your hand and arm shadow is a solid slide or a wall; and buttons are poked with a fingertip. What excites us about the future of VR is input that feels like play from the first second. You do not learn Shadowfolk. You already know how to make a shadow rabbit.
 
 ## Target launch date
 
@@ -70,16 +71,13 @@ TODO: name, email, role for each member.
 - Send it to a Quest from any phone or computer: https://shadowfolk.vercel.app/quest (Meta Web Launch)
 - Video: TODO (paste the public YouTube link)
 
-## Video plan (under 3 minutes, best part first)
+## Built with (tags)
 
-1. 0:00 to 0:15: Your hand rises into the lamplight. The shadow falls on the paper. Title.
-2. 0:15 to 0:50: The hare. The golden guide, the meter fills, the hare wakes and hops away.
-3. 0:50 to 1:30: Crocodile and dog, then the two-hand bird flying off.
-4. 1:30 to 2:00: The Shadow Book and the daily shadow with streak.
-5. 2:00 to 2:30: Gentle mode, high contrast, left-hand mirror play.
-6. 2:30 to 2:50: Close on the paper. "A new shadow wakes each day."
+webxr, immersive-web-sdk, three.js, typescript, vite, hand-tracking, meta-quest, web-audio, vercel
 
-Record on a Quest 3 with the system recorder (Meta button, Camera, Record video), or in the IWER emulator in a desktop browser.
+## Image gallery
+
+Use the images in `submission/`: `thumbnail.jpg` (3:2) as the project thumbnail, then `gallery-1.jpg` to `gallery-6.jpg` in order.
 
 ## YouTube upload text
 
