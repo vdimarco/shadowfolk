@@ -89,7 +89,7 @@ Shadowfolk: a hands-only shadow puppet game for Meta Quest (Meta VR Start 2026)
 
 Description:
 
-Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a moth, a hare, a crocodile, a dog, a bird, a deer, a turkey, a bat, an owl and a spider. After the story, a new shadow wakes every day.
+Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a starfish, a hare, a crocodile, a dog, a bird, a deer, a turkey, a bat, an owl and a spider. After the story, a new shadow wakes every day.
 
 - No controllers. Every action uses hand tracking.
 - Seated play, within a two-foot radius.
@@ -102,4 +102,4 @@ Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competi
 
 Visibility: Public. Category: Gaming.
 
-To rebuild the video: make two 5-second 16:9 opening shots, then run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` and `python3 tools/assemble-video.py shotA.mp4 shotB.mp4 <frames-dir> out.mp4`.
+To rebuild the video: make two 5-second 16:9 opening shots, then run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` then `npx tsx tools/render-score.mts https://localhost:4173/ <frames-dir>/events.json 8.6 <seconds> score.wav` for the game's own score, and `python3 tools/assemble-video.py shotA.mp4 shotB.mp4 <frames-dir> out.mp4 score.wav`.

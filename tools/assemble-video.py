@@ -6,6 +6,9 @@ The frames dir comes from tools/capture-video.ts (f00000.jpg ... and events.json
 import json, subprocess, sys, tempfile, os
 
 a, b, frames, out = sys.argv[1:5]
+# optional: a finished soundtrack WAV (for example the game's own score from
+# tools/render-score.mts); without it the synth in tools/soundtrack.ts is used
+music = sys.argv[5] if len(sys.argv) > 5 else None
 FONT = '/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf'
 SHOT, XF1, XF2 = 5.0, 0.6, 0.8
 tmp = tempfile.mkdtemp()
@@ -42,7 +45,10 @@ shifted = {'fps': 30, 'frames': int(round(total * 30)),
            'events': [{'t': 2.2, 'type': 'tap'}] + [{'t': e['t'] + offset, 'type': e['type']} for e in ev['events']]}
 json.dump(shifted, open(f'{tmp}/events.json', 'w'))
 here = os.path.dirname(os.path.abspath(__file__))
-subprocess.run(['npx', 'tsx', f'{here}/soundtrack.ts', f'{tmp}/events.json', f'{tmp}/sound.wav'], check=True)
+if music:
+    subprocess.run(['cp', music, f'{tmp}/sound.wav'], check=True)
+else:
+    subprocess.run(['npx', 'tsx', f'{here}/soundtrack.ts', f'{tmp}/events.json', f'{tmp}/sound.wav'], check=True)
 
 fc = (f'[0:v][1:v]xfade=transition=fade:duration={XF1}:offset={SHOT - XF1}[ab];'
       f'[ab][2:v]xfade=transition=fadeblack:duration={XF2}:offset={2 * SHOT - XF1 - XF2}[v]')

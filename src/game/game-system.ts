@@ -38,7 +38,7 @@ interface DebugApi {
   press(id: string): void;
   reset(): void;
   /** Render the music offline and return it as base64 WAV, to check it without a headset. */
-  renderMusic(seconds: number): Promise<string>;
+  renderMusic(seconds: number, cues?: { t: number; type: string }[]): Promise<string>;
   /** Desktop only: tilt the view down (negative degrees) to show the button tray. */
   setCameraPitch(deg: number): void;
   /** The poses of a story creature, by id, to test free play. */
@@ -1070,8 +1070,8 @@ export class GameSystem extends createSystem({}) {
         hands: (this.present.left ? 1 : 0) + (this.present.right ? 1 : 0),
       }),
       press: (id) => this.press(id),
-      renderMusic: async (seconds) => {
-        const bytes = await Sfx.renderPreview(seconds);
+      renderMusic: async (seconds, cues) => {
+        const bytes = await Sfx.renderPreview(seconds, cues);
         let bin = '';
         for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
         return btoa(bin);

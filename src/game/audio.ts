@@ -42,15 +42,21 @@ export class Sfx {
    * Render the score offline (no speakers), for checking it outside a headset.
    * Returns 16-bit stereo WAV bytes.
    */
-  static async renderPreview(seconds: number): Promise<Uint8Array> {
+  static async renderPreview(seconds: number, cues?: { t: number; type: string }[]): Promise<Uint8Array> {
     const sr = 44100;
-    const ctx = new OfflineAudioContext(2, sr * seconds, sr);
+    const ctx = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
     const sfx = new Sfx();
     sfx.init(ctx, false);
     sfx.scheduleUntil(seconds);
-    // a wake chime and a button tap partway through, to hear the cues in the music
-    sfx.chimeAt(seconds * 0.45);
-    sfx.tapAt(seconds * 0.7);
+    // cues at given times (a video's soundtrack), or a sample chime and tap
+    const list = cues ?? [
+      { t: seconds * 0.45, type: 'chime' },
+      { t: seconds * 0.7, type: 'tap' },
+    ];
+    for (const c of list) {
+      if (c.type === 'chime') sfx.chimeAt(c.t);
+      else sfx.tapAt(c.t);
+    }
     const buf = await ctx.startRendering();
     return encodeWav(buf);
   }
