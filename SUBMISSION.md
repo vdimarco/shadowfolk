@@ -55,6 +55,60 @@ You sit in an open-air shadow theater on a starry night, with a lamp behind you,
 - A shared daily shadow board for friends.
 - Meta VR Glasses support with a pinch-only mode.
 
+## Devpost story (paste into "About the project")
+
+Devpost asks for these seven headings. Paste this block as it is.
+
+```markdown
+## Inspiration
+
+Hand shadow puppets are one of the oldest games people play with their hands: a lamp, a wall, and nothing else. Quest hand tracking gives us 25 joints per hand, every frame. We wanted a game where your hands are not a pointer or a stand-in for a controller. Your hands are the game.
+
+## What it does
+
+You sit in an open-air shadow theater on a starry night. A lamp is behind you. Lift your hands, and their soft shadows fall on a paper screen. A golden line shows a sleeping creature. Make that shape and hold it, and the creature wakes: its eye opens, and the hare hops away, the crocodile slides off, the bird flies into the night.
+
+- **Chapters one and two:** ten story shadows teach the classic shapes, from one open hand to two-hand creatures.
+- **Help when you are stuck:** a golden hand appears on your own wrist, already in the pose.
+- **Chapter three:** your shadow becomes solid. Hold your hand and arm as a slide to guide rain into a cup, and herd fireflies into a jar.
+- **Chapter four, the Ink Wolf:** every creature you have woken is now a spell. Make its shape and it flies at a wolf made of ink that creeps toward your three lamp flames. The dog and crocodile hit hard, the starfish blocks a bite, the spider's web slows the wolf, and the deer lights a flame again. The wolf's eyes glow red before it bites, so you have time to block.
+- **Every day:** a new shadow wakes. The Shadow Book keeps your collection and your streak, and free play lets any shadow you know wake its creature.
+
+## How we built it
+
+- WebXR with Meta's Immersive Web SDK and Three.js, in TypeScript. It runs in the Quest Browser with no install.
+- Each hand becomes 32 capsules (finger bones, palm, thumb web, forearm). We project them from the lamp onto the paper, with a soft edge from the flame size, and draw them as instanced quads into a high-resolution shadow texture.
+- A matcher compares your shadow with each target. It ignores position and size, and it accepts the mirrored shape for left-handed players. In the battle, it checks every creature in your Shadow Book at once, so any shape you know is a spell.
+- Every target comes from a pose model of a real hand.
+- No art or audio files: the paper, the night sky, the light, and a generative lullaby score with a frame-drum pulse in the battle are all code.
+
+## Challenges we ran into
+
+- **Making every shape possible for a real hand.** Our first dog needed a pinky bent further than any hand can bend. We rebuilt every target from a model of real joints, and tests now check that each shape matches itself and rejects all the others.
+- **Shadow quality on the headset.** Our first shadows looked soft and blotchy on Quest. We moved to one small instanced quad per capsule and multiplied the light, so overlaps join with no seams at full resolution.
+- **A guide that maps to your hand.** A golden hand in the middle of the room did not help. Now the guide sits on your own wrist, so only your fingers and the turn of your hand need to change.
+- **Puzzle physics on a shadow.** Raindrops stuck to the shadow's edge. They now slide along the surface, and a speed limit keeps them from shooting past the cup.
+
+## Accomplishments that we're proud of
+
+- The game is fully hands-only and seated. There are no controllers, and even the menu buttons are brass buttons you poke.
+- Shapes, puzzles and battles all have automatic tests. A player who does nothing loses to the wolf, and a careful player wins.
+- Gentle mode lowers the match level, accepts one hand for two-hand shapes, and switches to high-contrast paper.
+
+## What we learned
+
+- Hand tracking is the most natural input when the game asks for something people already know how to do.
+- A shape is only fair if a real hand can make it, so the targets must come from real joint limits.
+- Help works best right where your attention already is: on your hand, and on the paper.
+
+## What's next for Shadowfolk
+
+- More chapters and more creatures, and a two-player shadow play.
+- A shared daily shadow board for friends.
+- Meta VR Glasses support with a pinch-only mode.
+- A release on the Meta Horizon Store as a packaged web app.
+```
+
 ## Hand interactions (optional field)
 
 Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. The hands are the only input: shapes come from finger curl, finger spread, and wrist turn; in the puzzles your hand and arm shadow is a solid slide or a wall; in the battle each shape you know is a spell; and buttons are poked with a fingertip. What excites us about the future of VR is input that feels like play from the first second. You do not learn Shadowfolk. You already know how to make a shadow rabbit.
