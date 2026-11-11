@@ -109,6 +109,23 @@ You sit in an open-air shadow theater on a starry night. A lamp is behind you. L
 - A release on the Meta Horizon Store as a packaged web app.
 ```
 
+## Describe how Hand Interactions are implemented into your experience
+
+```
+Shadowfolk uses hand tracking as its only input. There are no controllers and no pinch menus.
+
+How it works: each frame, the game reads all 25 joints of both hands from WebXR Hand Input. It turns each hand and forearm into 32 capsules, projects them from a virtual lamp onto a paper screen, and draws the soft shadow in real time. A matcher compares that shadow with the target shape. It ignores position and size, and it accepts the mirrored shape, so either hand works.
+
+How the hands are used:
+- Shapes: finger curl, finger spread and wrist turn make 10 classic hand shadows (one-hand and two-hand). Hold a shape for less than a second and the creature wakes.
+- Guidance: when a player is stuck, a golden hand model appears on their own wrist, already in the pose, so they only change their fingers and the turn of their hand.
+- Puzzles: the hand-and-arm shadow becomes solid. Players tilt it into a slide to guide rain into a cup, and sweep it to herd fireflies into a jar.
+- Battle: every shape the player knows is a spell. Making a shape casts it at the Ink Wolf. The starfish blocks, the spider slows, and the deer heals.
+- Buttons: three brass buttons on a tray within easy reach of a seated player. You poke them with a fingertip.
+
+Comfort and access: everything is seated, within about two feet of the chest. Gentle mode lowers the match level, accepts one hand for two-hand shapes, and uses high-contrast paper.
+```
+
 ## Hand interactions (optional field)
 
 Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. The hands are the only input: shapes come from finger curl, finger spread, and wrist turn; in the puzzles your hand and arm shadow is a solid slide or a wall; in the battle each shape you know is a spell; and buttons are poked with a fingertip. What excites us about the future of VR is input that feels like play from the first second. You do not learn Shadowfolk. You already know how to make a shadow rabbit.
