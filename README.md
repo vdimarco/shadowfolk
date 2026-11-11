@@ -4,6 +4,8 @@ A seated, hands-only VR game for Meta Quest. You sit in front of a paper screen.
 
 Built with the Immersive Web SDK (IWSDK) for WebXR. Entry for the Meta VR Start Developer Competition 2026: Gaming track, New Experience division.
 
+Demo video (2:37): https://youtu.be/hYi-IIQHwPE
+
 ## Play
 
 1. Open https://shadowfolk.vercel.app in the Meta Quest Browser.

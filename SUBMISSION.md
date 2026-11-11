@@ -71,7 +71,7 @@ TODO: name, email, role for each member.
 
 - Playable build: https://shadowfolk.vercel.app
 - Send it to a Quest from any phone or computer: https://shadowfolk.vercel.app/quest (Meta Web Launch)
-- Video: TODO (paste the public YouTube link)
+- Video: https://youtu.be/hYi-IIQHwPE
 
 ## Built with (tags)
 
