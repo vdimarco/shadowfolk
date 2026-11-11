@@ -58,7 +58,7 @@ Shadowfolk reads all 25 joints of each hand from WebXR Hand Input each frame. Th
 
 ## Target launch date
 
-TODO (your call). The web build is already live and installable as a Quest app (manifest, icons, auto-enter VR). A suggestion: open web release at judging time, then the Meta Horizon Store as a packaged web app in early 2027.
+TODO (your call). The web build is already live, and the manifest, icons and auto-enter VR are ready for packaging. A suggestion: open web release at judging time, then the Meta Horizon Store as a packaged web app in early 2027.
 
 ## Team
 
@@ -67,6 +67,7 @@ TODO: name, email, role for each member.
 ## Links
 
 - Playable build: https://shadowfolk.vercel.app
+- Send it to a Quest from any phone or computer: https://shadowfolk.vercel.app/quest (Meta Web Launch)
 - Video: TODO (paste the public YouTube link)
 
 ## Video plan (under 3 minutes, best part first)

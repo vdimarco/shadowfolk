@@ -3,5 +3,12 @@
   "framework": "vite",
   "installCommand": "npm install --ignore-scripts --no-audit --no-fund",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/quest",
+      "destination": "https://www.oculus.com/open_url/?url=https%3A%2F%2Fshadowfolk.vercel.app%2F",
+      "permanent": false
+    }
+  ]
 }

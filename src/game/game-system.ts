@@ -738,6 +738,28 @@ export class GameSystem extends createSystem({}) {
     });
     if (new URLSearchParams(location.search).has('capture')) btn.hidden = true;
     document.body.appendChild(btn);
+
+    // On a phone or computer, offer Meta's Web Launch: it opens this page in
+    // the headset's browser, so nobody has to type the address on a Quest.
+    const onQuest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+    if (!onQuest && !btn.hidden) {
+      const send = document.createElement('a');
+      send.textContent = 'Open on Meta Quest';
+      send.href = 'https://www.oculus.com/open_url/?url=' + encodeURIComponent(location.origin + '/');
+      send.target = '_blank';
+      send.rel = 'noopener';
+      Object.assign(send.style, {
+        position: 'fixed', left: '50%', bottom: '96px', transform: 'translateX(-50%)', zIndex: '10',
+        padding: '10px 22px', font: '600 16px Georgia, serif', color: '#f2d9a6', background: 'rgba(20,10,6,.85)',
+        border: '2px solid #f2d9a6', borderRadius: '999px', textDecoration: 'none',
+      });
+      document.body.appendChild(send);
+      this.cleanupFuncs.push(
+        this.world.visibilityState.subscribe((vs) => {
+          send.style.display = vs === VisibilityState.NonImmersive ? 'block' : 'none';
+        }),
+      );
+    }
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((vs) => {
         btn.style.display = vs === VisibilityState.NonImmersive && !btn.hidden ? 'block' : 'none';

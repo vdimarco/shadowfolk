@@ -18,7 +18,12 @@ No controllers. Every action uses hands:
   - **Gentle**: lowers the match level and raises the contrast.
   - **Skip / Next / Daily / Free play**: moves on. After the daily shadow it opens free play, where any shadow from your Book wakes its creature.
 
-To install it as an app, open the link in the Quest Browser and choose Install. The installed app goes straight into VR when you open it.
+### Get it onto your Quest
+
+- **From a phone or computer:** open https://shadowfolk.vercel.app/quest (or press "Open on Meta Quest" on the site). Meta's Web Launch sends the page to your headset's browser.
+- **In the headset:** open the Quest Browser and type `shadowfolk.vercel.app`. Bookmark it to come back.
+
+The site also has a web app manifest and icons. If it is later packaged for the Meta Horizon Store, the packaged app opens straight into VR.
 
 ## How it works
 
