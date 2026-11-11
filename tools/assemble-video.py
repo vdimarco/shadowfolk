@@ -1,4 +1,4 @@
-"""Join AI concept shots in front of the captured gameplay and rebuild the soundtrack.
+"""Join two opening shots in front of the captured gameplay and rebuild the soundtrack.
 
 Usage: python3 tools/assemble-video.py <shotA.mp4> <shotB.mp4> <frames-dir> <out.mp4>
 The frames dir comes from tools/capture-video.ts (f00000.jpg ... and events.json).
@@ -21,8 +21,6 @@ def shot(src, dst, caption, fade_in):
         f"drawtext=fontfile={FONT}:text='{esc(caption)}':fontsize=54:fontcolor=0xf6e4c2:"
         "x=(w-text_w)/2:y=h*0.84:shadowcolor=black@0.85:shadowx=0:shadowy=3:"
         "alpha='if(lt(t,0.5),0,min(1,(t-0.5)/0.5))'",
-        f"drawtext=fontfile={FONT}:text='Concept shot · AI-generated':fontsize=24:fontcolor=white@0.55:"
-        "x=w-text_w-36:y=36",
     ]
     if fade_in:
         vf.append('fade=t=in:st=0:d=0.8')
