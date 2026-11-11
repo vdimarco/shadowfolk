@@ -34,7 +34,7 @@ const SIDES_RL = ['right', 'left'] as const;
 
 interface DebugApi {
   setPoses(poses: HandPose[] | null): void;
-  state(): { state: State; level: string; score: number; found: string[]; hands: number };
+  state(): { state: State; level: string; score: number; found: string[]; hands: number; puzzleCount: number; puzzleDone: boolean };
   press(id: string): void;
   reset(): void;
   /** Render the music offline and return it as base64 WAV, to check it without a headset. */
@@ -1063,6 +1063,8 @@ export class GameSystem extends createSystem({}) {
       state: () => ({
         state: this.state,
         level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.level.id,
+        puzzleCount: this.puzzleCount,
+        puzzleDone: this.puzzleDoneAt >= 0,
         score: this.score,
         found: [...this.progress.found],
         hands: (this.present.left ? 1 : 0) + (this.present.right ? 1 : 0),

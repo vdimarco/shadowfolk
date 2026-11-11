@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { type FingerSpec, type HandPose, poseToJoints } from '../src/game/hand-model.js';
 import { dailyLevel, dayNumber } from '../src/game/daily.js';
 import { LEVELS } from '../src/game/levels.js';
+import { fliesPose, rainPose } from './puzzle-moves.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -116,11 +117,18 @@ await page.addInitScript(() => {
   };
 });
 const ONLY_POKE = !!process.env.ONLY_POKE;
+const ONLY_PUZZLES = !!process.env.ONLY_PUZZLES;
+if (ONLY_PUZZLES) {
+  // test mode: start right after chapter two and run the puzzle scenes only
+  await page.addInitScript((ids: string[]) => {
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 0 }));
+  }, LEVELS.map((l) => l.id));
+}
 if (ONLY_POKE) {
   // test mode: start at the end of the story and run the button section only
   await page.addInitScript(
     ({ d, day, ids }: { d: string; day: number; ids: string[] }) => {
-      localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: [...ids, d], gentle: false, dailyDay: day, streak: 1 }));
+      localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: [...ids, d], gentle: false, dailyDay: day, streak: 1, puzzle: 2 }));
     },
     { d: dailyLevel(dayNumber()).id, day: dayNumber(), ids: LEVELS.map((l) => l.id) },
   );
@@ -155,7 +163,7 @@ await page.evaluate((keep: boolean) => {
   band.id = 'sf-band';
   band.style.opacity = '0';
   document.body.append(band, cap, card);
-}, ONLY_POKE);
+}, ONLY_POKE || ONLY_PUZZLES);
 
 // ------------------------------------------------------------ timeline
 
@@ -246,10 +254,11 @@ async function until(pred: (s: { state: string; level: string }) => boolean, max
 
 const TITLE = `<h1>Shadowfolk</h1><p>A hands-only shadow puppet game for Meta Quest</p>`;
 
-if (ONLY_POKE) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+if (ONLY_POKE || ONLY_PUZZLES) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
 
 try {
   if (ONLY_POKE) throw new Error('skip-story');
+  if (!ONLY_PUZZLES) {
   // A. title card over the sleeping paper
   card = { html: TITLE, alpha: 0 };
   await hold(4.2, (k) => (card.alpha = k < 0.15 ? k / 0.15 : k > 0.8 ? (1 - k) / 0.2 : 1));
@@ -263,6 +272,7 @@ try {
   await hold(0.6);
   await until((s) => s.state === 'level', 8);
 
+  }
   const captions: Record<string, string> = {
     moth: 'Match the golden outline. Hold it, and the shadow wakes.',
     hare: 'Every creature is a classic hand shadow.',
@@ -299,9 +309,35 @@ try {
     void id;
   }
 
-  for (const lv of LEVELS) {
-    await playLevel(lv.id, lv.hands, captions[lv.id], offsets[lv.id]);
+  if (!ONLY_PUZZLES) {
+    for (const lv of LEVELS) {
+      await playLevel(lv.id, lv.hands, captions[lv.id], offsets[lv.id]);
+    }
   }
+
+  // C2. chapter three: shadow puzzles, solved by the scripted moves in tools/puzzle-moves.ts
+  async function follow(fn: (t: number) => HandPose[], done: (s: { state: string; level: string }) => boolean, maxSec: number) {
+    await move(fn(0).map(norm), 0.6);
+    const t0 = frame / FPS;
+    for (let i = 0; i < maxSec * FPS; i++) {
+      hands = fn(frame / FPS - t0).map(norm);
+      const s = await step();
+      if (done(s)) return s;
+    }
+    return null;
+  }
+  await until((s) => s.state === 'puzzle', 6);
+  say('Chapter three: your shadow is solid. Guide the rain into the cup.');
+  const rainEnd = await follow(rainPose, (s) => s.level !== 'puzzle-rain' || (s as any).puzzleDone, 40);
+  console.log('rain', JSON.stringify(rainEnd));
+  await move([REST.right], 1.0);
+  await until((s) => s.level === 'puzzle-fireflies', 8);
+  say('Fireflies flee from shadow. Herd them into the jar.');
+  const fliesEnd = await follow(fliesPose, (s) => s.level !== 'puzzle-fireflies' || (s as any).puzzleDone, 50);
+  console.log('fireflies', JSON.stringify(fliesEnd));
+  await move([REST.right], 1.0);
+  await until((s) => s.state === 'level', 8);
+  if (ONLY_PUZZLES) throw new Error('skip-story');
 
   // C. daily shadow
   const daily = dailyLevel(dayNumber());
@@ -315,6 +351,7 @@ try {
 }
 
 try {
+  if (ONLY_PUZZLES) throw new Error('puzzles only');
   // D. poke buttons on the tray: Book, then Gentle
   say('Every button is a fingertip poke. No controllers.');
   await move([REST.right], 0.3, (k) => (pitch = -38 * ease(k)));
@@ -363,8 +400,10 @@ try {
   };
   await hold(5.5, (k) => (card.alpha = Math.min(1, k / 0.15)));
 } catch (e) {
-  console.log('FAIL', (e as Error).message);
-  errors.push((e as Error).message);
+  if ((e as Error).message !== 'puzzles only') {
+    console.log('FAIL', (e as Error).message);
+    errors.push((e as Error).message);
+  }
 }
 
 writeFileSync(`${outDir}/events.json`, JSON.stringify({ fps: FPS, frames: frame, events }, null, 1));
