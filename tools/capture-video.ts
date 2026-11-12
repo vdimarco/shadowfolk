@@ -402,15 +402,15 @@ try {
 
   }
   const captions: Record<string, string> = {
-    moth: 'Match the golden outline. Hold it, and the shadow wakes.',
+    moth: 'Match the golden outline. Hold it, and the shadow comes alive.',
     hare: 'Every creature is a classic hand shadow.',
-    crocodile: 'Make the shape anywhere on the paper, at any size.',
-    dog: 'A soft hum rises as you get close.',
+    crocodile: 'Make the shape anywhere on the paper, at any size or angle.',
+    dog: 'Your shadow glows gold as you get close.',
     bird: 'Some shadows need both hands.',
     deer: 'Every target is a real hand pose.',
     fox: 'Chapter two brings new shapes.',
     butterfly: 'Chapter two: hook your thumbs, and a butterfly opens its wings.',
-    owl: 'Every target is a real hand pose. When a creature wakes, its eye opens.',
+    owl: 'Every creature steps out of the paper and into the room.',
     spider: 'Ten story shadows teach the shapes.',
   };
   const offsets: Record<string, { d: V3; r: V3 }> = {
