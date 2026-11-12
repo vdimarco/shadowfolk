@@ -116,6 +116,16 @@ if (want('magic')) {
   await page.close();
 }
 
+// the Shadow Book with every creature found
+if (want('book')) {
+  const page = await open({ level: 10, found: ids, puzzle: 2, battle: true });
+  await adv(page, 20);
+  await page.evaluate(() => (window as any).__shadowfolk.press('book'));
+  await adv(page, 20);
+  await shot(page, 'shot-7-book');
+  await page.close();
+}
+
 // 3. the rain puzzle: the hand and arm shadow is a slide
 if (want('rain')) {
   const page = await open({ level: 10, found: ids, puzzle: 0, battle: false });

@@ -27,6 +27,7 @@ import { Theater } from './theater.js';
 import { NightWorld } from './world.js';
 import { BattleScene } from './battle-scene.js';
 import { JointFilter } from './smooth.js';
+import { ART, ArtSprite, CreatureArt } from './creature-art.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle';
 
@@ -144,6 +145,10 @@ export class GameSystem extends createSystem({}) {
   private progress!: Progress;
   /** Chapter four: the Ink Wolf. */
   private battleScene!: BattleScene;
+  /** The illustrated creature that appears when a shadow wakes. */
+  private wakeSprite = new ArtSprite(6);
+  private wakeArt = false;
+  private motion = { ox: 0, oy: 0, sx: 1, sy: 1, rot: 0 };
 
   private live = new SegmentBuffer();
   private creature = new SegmentBuffer();
@@ -183,6 +188,8 @@ export class GameSystem extends createSystem({}) {
     this.theater = new Theater();
     this.world.createTransformEntity(this.theater.root, { persistent: true });
     this.theater.root.add(this.handViz.root, this.guide.root, this.guideSkin.root);
+    CreatureArt.load();
+    this.theater.root.add(this.wakeSprite.mesh);
     this.battleScene = new BattleScene(this.theater, this.sfx);
     this.nightWorld = new NightWorld();
     this.theater.root.add(this.nightWorld.root);
@@ -220,6 +227,10 @@ export class GameSystem extends createSystem({}) {
 
   private enter(s: State) {
     if (this.state === 'battle' && s !== 'battle') this.battleScene.stop();
+    if (s !== 'wake') {
+      this.wakeSprite.set(0);
+      this.wakeSprite.hide();
+    }
     this.state = s;
     this.stateTime = 0;
     this.hold = 0;
@@ -247,6 +258,7 @@ export class GameSystem extends createSystem({}) {
         u.uTargetMode.value = 1;
         u.uMeter.value = 0;
         u.uFlash.value.y = 0.7; // a soft golden flash as the shadow comes alive
+        this.wakeArt = this.wakeSprite.show(this.level.id);
         this.sfx.chime();
         this.sfx.setCloseness(0, 1);
         this.ink([this.level.name], wrap(this.level.wake, 52), '');
@@ -711,14 +723,28 @@ export class GameSystem extends createSystem({}) {
       }
       case 'wake': {
         const k = Math.min(1, this.stateTime / WAKE_TIME);
-        u.uLiveAlpha.value = Math.max(0.15, 1 - this.stateTime * 1.5);
+        const t = this.stateTime;
+        u.uLiveAlpha.value = Math.max(0.15, 1 - t * 1.5);
         u.uTargetAlpha.value = k < 0.8 ? 1 : 1 - (k - 0.8) / 0.2;
         const eyeOut = animateCreature(
-          this.targetSegs, this.creature, this.level.motion, this.stateTime, this.wakeFrom, this.wakeCenter, this.eyeBase, this.eyeTmp,
+          this.targetSegs, this.creature, this.level.motion, t, this.wakeFrom, this.wakeCenter, this.eyeBase, this.eyeTmp,
         );
-        if (eyeOut) {
+        if (this.wakeArt) {
+          // the shadow shape glows, then gives way to the creature it always was
+          u.uTargetAlpha.value = t < 0.3 ? 1 : Math.max(0, 1 - (t - 0.3) / 0.6);
+          const m = creatureMotion(this.level.motion, t, this.motion);
+          const info = ART[this.level.id];
+          const h = info.height * Math.min(1.3, Math.max(0.85, this.wakeFrom.s));
+          this.wakeSprite.place(
+            this.wakeCenter[0] + this.wakeFrom.x + m.ox,
+            this.wakeCenter[1] + this.wakeFrom.y + m.oy,
+            h, m.rot, m.sx, m.sy, this.wakeFrom.mirror,
+          );
+          const reveal = Math.min(1, Math.max(0, (t - 0.15) / 0.9));
+          const fade = k < 0.82 ? 1 : Math.max(0, 1 - (k - 0.82) / 0.18);
+          this.wakeSprite.set(fade, reveal, time);
+        } else if (eyeOut) {
           // the eye opens after the creature starts to move, and blinks twice
-          const t = this.stateTime;
           const open = Math.min(1, Math.max(0, (t - 0.35) / 0.4));
           const blink = (t > 1.7 && t < 1.82) || (t > 3.1 && t < 3.22) ? 0 : 1;
           u.uEye.value.set(eyeOut[0], eyeOut[1], 0.017 * this.wakeFrom.s, open * blink * u.uTargetAlpha.value);
@@ -1165,6 +1191,25 @@ export class GameSystem extends createSystem({}) {
       const x0 = 512 + ((i % cols) - (cols - 1) / 2) * colW - cw / 2;
       const y0 = 112 + Math.floor(i / cols) * ch;
       const found = this.progress.found.includes(lv.id);
+      // the illustrated creature, inked on the page (faint until it is found)
+      const art = CreatureArt.texture(lv.id);
+      const artImg = art?.image as CanvasImageSource | undefined;
+      const info = ART[lv.id];
+      if (artImg && info) {
+        const boxH = (cw * GRID_H) / GRID_W;
+        let w = boxH * info.aspect, h = boxH;
+        if (w > cw) {
+          w = cw;
+          h = cw / info.aspect;
+        }
+        g.globalAlpha = found ? 0.95 : 0.14;
+        g.drawImage(artImg, x0 + (cw - w) / 2, y0 + (boxH - h) / 2, w, h);
+        g.globalAlpha = found ? 0.9 : 0.4;
+        g.font = `${Math.round(Math.min(28, ch / 7))}px Georgia, serif`;
+        g.fillText(found ? lv.name : '? ? ?', x0 + cw / 2, y0 + boxH + Math.min(30, ch / 6));
+        g.globalAlpha = 1;
+        return;
+      }
       buf.clear();
       lv.hands.forEach((h, k) => projectHand(poseToJoints(h), buf, k * SEGS_PER_HAND));
       rasterize(buf, m);
@@ -1326,18 +1371,10 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
-/** Move the target shape so it starts where the player's shadow was, then let it act. */
-function animateCreature(
-  src: SegmentBuffer,
-  dst: SegmentBuffer,
-  motion: Motion,
-  t: number,
-  from: { x: number; y: number; s: number; mirror: boolean },
-  center: [number, number],
-  eyeIn: [number, number] | null,
-  eyeOut: [number, number],
-): [number, number] | null {
-  const [cx, cy] = center;
+const motionTmp = { ox: 0, oy: 0, sx: 1, sy: 1, rot: 0 };
+
+/** How a waking creature moves at time t: offset, stretch and turn. */
+function creatureMotion(motion: Motion, t: number, out: { ox: number; oy: number; sx: number; sy: number; rot: number }) {
   let ox = 0, oy = 0, sx = 1, sy = 1, rot = 0;
   const e = Math.max(0, t - 0.5); // brief pause before it moves
   switch (motion) {
@@ -1386,6 +1423,27 @@ function animateCreature(
       rot = Math.sin(e * 2.4) * 0.12;
       break;
   }
+  out.ox = ox;
+  out.oy = oy;
+  out.sx = sx;
+  out.sy = sy;
+  out.rot = rot;
+  return out;
+}
+
+/** Move the target shape so it starts where the player's shadow was, then let it act. */
+function animateCreature(
+  src: SegmentBuffer,
+  dst: SegmentBuffer,
+  motion: Motion,
+  t: number,
+  from: { x: number; y: number; s: number; mirror: boolean },
+  center: [number, number],
+  eyeIn: [number, number] | null,
+  eyeOut: [number, number],
+): [number, number] | null {
+  const [cx, cy] = center;
+  const { ox, oy, sx, sy, rot } = creatureMotion(motion, t, motionTmp);
   const s = from.s;
   const mir = from.mirror ? -1 : 1;
   const c = Math.cos(rot), sn = Math.sin(rot);

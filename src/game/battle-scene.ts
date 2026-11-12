@@ -9,6 +9,7 @@ import { poseToJoints } from './hand-model.js';
 import { LEVELS, type Level } from './levels.js';
 import { FOREARM_SLOT, GRID_H, GRID_W, gridToWall, Matcher, projectHand, rasterize, SegmentBuffer, shapeStats, SEGS_PER_HAND } from './silhouette.js';
 import type { Theater } from './theater.js';
+import { ART, ArtSprite, WOLF_EYE_UV } from './creature-art.js';
 
 /** Hold a spell shape this long to cast it. */
 const CAST_HOLD = 0.35;
@@ -67,10 +68,17 @@ export class BattleScene {
   /** 0..1: how close the player's shadow is to any spell, for the glow. */
   magic = 0;
 
+  /** The illustrated wolf, and the illustrated creature of a flying spell. */
+  private wolfSprite = new ArtSprite(5);
+  private shotSprite = new ArtSprite(7);
+  private shotArt = false;
+
   constructor(
     private theater: Theater,
     private sfx: Sfx,
-  ) {}
+  ) {
+    theater.root.add(this.wolfSprite.mesh, this.shotSprite.mesh);
+  }
 
   /** Build the spellbook from the creatures the player has found (all of them if fewer than three). */
   start(gentle: boolean, found: string[]) {
@@ -114,6 +122,10 @@ export class BattleScene {
 
   stop() {
     this.sfx.setBattle(false);
+    this.wolfSprite.set(0);
+    this.wolfSprite.hide();
+    this.shotSprite.set(0);
+    this.shotSprite.hide();
     const u = this.theater.wallMat.uniforms;
     u.uRedEye.value.set(0, 0, 0, 0);
     u.uTargetAura.value.setRGB(1.0, 0.72, 0.3);
@@ -172,8 +184,17 @@ export class BattleScene {
       const x = s.from[0] + (s.to[0] - s.from[0]) * e;
       const y = s.from[1] + (s.to[1] - s.from[1]) * e + Math.sin(Math.PI * k) * s.arc;
       const sc = s.from[2] + (s.to[2] - s.from[2]) * e;
-      placeShadow(s.cand, x, y, sc, this.segs.data, SEGS_PER_HAND);
-      if (k >= 1) this.land(s);
+      if (this.shotArt) {
+        // the creature itself flies, tilted along its path, small and bright
+        const dx = s.to[0] - s.from[0];
+        const tilt = Math.atan2(Math.cos(Math.PI * k) * s.arc * Math.PI, Math.abs(dx) + 0.001) * 0.5;
+        this.shotSprite.place(x, y, ART[s.cand.level.id].height * 0.55 * Math.max(0.5, sc), dx >= 0 ? tilt : -tilt, 1, 1, dx < 0);
+        this.shotSprite.set(1, Math.min(1, k * 4), this.time);
+      } else placeShadow(s.cand, x, y, sc, this.segs.data, SEGS_PER_HAND);
+      if (k >= 1) {
+        this.shotSprite.set(0);
+        this.land(s);
+      }
     }
 
     // ---- rules
@@ -194,6 +215,15 @@ export class BattleScene {
     const shake = b.state === 'won' ? Math.sin(this.time * 60) * 0.006 : this.hitFlash * Math.sin(this.time * 70) * 0.01;
     drawWolf(this.segs.data, 0, wx + shake, WOLF_Y, this.look, this.eye);
     if (b.state === 'won') this.wolfAlpha = Math.max(0, this.wolfAlpha - dt * 0.8);
+    const wolfArt = this.wolfSprite.id === 'wolf' || this.wolfSprite.show('wolf');
+    if (wolfArt) {
+      // the illustrated wolf takes the place of the shadow wolf
+      this.segs.data.fill(0, 0, SEGS_PER_HAND * 8);
+      const bob = Math.abs(Math.sin(this.look.walk)) * 0.006;
+      this.wolfSprite.place(wx + shake, WOLF_Y + 0.01 + bob - this.look.crouch * 0.02, ART.wolf.height, -0.07 * leap, 1 + 0.06 * leap, 1 - 0.08 * this.look.crouch);
+      this.wolfSprite.set(this.wolfAlpha, this.wolfAlpha, this.time, this.hitFlash * 0.55);
+      this.wolfSprite.pointAt(WOLF_EYE_UV[0], WOLF_EYE_UV[1], this.eye);
+    }
     u.uTargetMode.value = 1;
     u.uTargetAlpha.value = 1;
     // the wolf's glow is cold and red, brighter as it gathers to bite
@@ -278,6 +308,7 @@ export class BattleScene {
         break;
     }
     this.shot = { cand: c, t: 0, dur, from: [px, py, s0], to, arc };
+    this.shotArt = this.shotSprite.show(c.level.id);
     this.sfx.cue('whoosh');
     this.log.push({ t: this.time, type: 'whoosh' });
     this.line = `${c.spell.name}!`;
