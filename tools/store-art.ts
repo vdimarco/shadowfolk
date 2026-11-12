@@ -76,11 +76,16 @@ async function until(page: any, pred: (s: any) => boolean, max = 600, poses?: (t
 async function shot(page: any, name: string, w = 2560, h = 1440) {
   if (process.env.SMALL) { await page.screenshot({ path: `${outDir}/${name}-small.png` }); }
   await page.setViewportSize({ width: w, height: h });
-  await page.waitForTimeout(800);
-  await adv(page, 3);
-  await page.waitForTimeout(800);
-  await adv(page, 1);
-  await page.screenshot({ path: `${outDir}/${name}.png` });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await page.waitForTimeout(1500);
+    await adv(page, 3);
+    await page.waitForTimeout(1500);
+    await adv(page, 1);
+    const buf: Buffer = await page.screenshot({ path: `${outDir}/${name}.png`, timeout: 180000 });
+    // a black frame means the canvas was caught between resize and draw: try again
+    if (buf.length > 200000) break;
+    console.log('blank frame, retrying', name);
+  }
   await page.setViewportSize({ width: 960, height: 540 });
   console.log('saved', name);
 }
@@ -98,13 +103,16 @@ if (want('wake')) {
   await page.close();
 }
 
-// 2. stuck: the golden guide hand sits on the player's wrist (the crocodile)
-if (want('guide')) {
-  const page = await open({ level: 2, found: ids.slice(0, 2), puzzle: 0, battle: false });
+// 2. magic: the dog shape held at its comfortable angle, almost there, glowing
+if (want('magic')) {
+  const page = await open({ level: 0, found: [], puzzle: 0, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
-  const relaxed: HandPose[] = [{ hand: 'right', pos: [0.06, -0.2, -0.4], rot: [0, 0, -70], thumb: { out: 0.5 }, index: 0.2, middle: 0.25, ring: 0.3, pinky: 0.35 }];
-  await adv(page, 30 * 9, () => relaxed);
-  await shot(page, 'shot-2-guide');
+  // an open hand, fingers not yet spread: close to the starfish, glowing, not awake yet
+  const near: HandPose[] = [{ hand: 'right', pos: [0.02, -0.25, -0.42], rot: [0, 0, 12], thumb: { out: 0.5, opp: 0 }, index: { curl: 0.48, splay: 3 }, middle: { curl: 0.48 }, ring: { curl: 0.48, splay: -3 }, pinky: { curl: 0.48, splay: -6 } }];
+  await adv(page, 40, () => near);
+  const st = await state(page);
+  console.log('magic scene', st.state, st.score.toFixed(2));
+  await shot(page, 'shot-2-magic');
   await page.close();
 }
 
@@ -121,7 +129,7 @@ if (want('rain')) {
 if (want('flies')) {
   const page = await open({ level: 10, found: ids, puzzle: 1, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
-  await adv(page, 30 * 6.2, (t) => fliesPose(t));
+  await adv(page, 30 * 4.5, (t) => fliesPose(t));
   await shot(page, 'shot-4-fireflies');
   await page.close();
 }
@@ -150,31 +158,31 @@ if (want('battle')) {
   await page.close();
 }
 
-// cover backgrounds: a clean paper (no text), the hands making the bird, the wolf facing it
+// covers: the title inked on the paper (no other text), the hands making the bird, the Ink Wolf facing it
 if (want('cover')) {
   const sizes: [string, number, number, { pos: [number, number, number]; pitch: number; fov: number }][] = [
-    ['bg-landscape', 2560, 1440, { pos: [0, 1.32, 0.95], pitch: 1, fov: 50 }],
-    ['bg-hero', 3000, 900, { pos: [0, 1.36, 1.5], pitch: 2, fov: 34 }],
-    ['bg-square', 1440, 1440, { pos: [0, 1.36, 1.25], pitch: 2, fov: 62 }],
-    ['bg-portrait', 1008, 1440, { pos: [0, 1.38, 1.4], pitch: 3, fov: 70 }],
-    ['bg-mini', 1080, 360, { pos: [0, 1.3, 1.6], pitch: 1, fov: 30 }],
+    ['cover-landscape', 2560, 1440, { pos: [0, 1.2, 0.6], pitch: 0, fov: 50 }],
+    ['cover-hero', 3000, 900, { pos: [0, 1.2, 1.1], pitch: 0, fov: 34 }],
+    ['cover-square', 1440, 1440, { pos: [0, 1.2, 0.36], pitch: 0, fov: 62 }],
+    ['cover-portrait', 1008, 1440, { pos: [0, 1.2, 0.51], pitch: 0, fov: 70 }],
+    ['cover-mini', 1080, 360, { pos: [0, 1.2, 1.13], pitch: 0, fov: 30 }],
   ];
   const page = await open({ level: 10, found: ids, puzzle: 2, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 20);
-  const bird = shift(level('bird').hands, [-0.07, 0.03, 0.02]);
+  const bird = shift(level('bird').hands, [-0.15, 0.0, -0.03]);
   // hold a shape that is not a spell yet (the hands rise), then the bird
   await adv(page, 40, () => bird);
-  await page.evaluate(() => (window as any).__shadowfolk.art(true));
+  await page.evaluate(() => (window as any).__shadowfolk.art(true, undefined, 'Shadowfolk', 150));
   await adv(page, 4, () => bird);
   for (const [name, w, h, cam] of sizes) {
-    await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c), cam);
+    await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c, 'Shadowfolk', 150), cam);
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(800);
     await adv(page, 3, () => bird);
     await page.waitForTimeout(800);
     await adv(page, 1, () => bird);
-    await page.screenshot({ path: `${outDir}/${name}.png` });
+    await page.screenshot({ path: `${outDir}/${name}.png`, timeout: 180000 });
     console.log('saved', name);
   }
   await page.close();

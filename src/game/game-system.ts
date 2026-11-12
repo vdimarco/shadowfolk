@@ -65,7 +65,7 @@ interface DebugApi {
   /** Start the immersive session (used with the IWER emulator for recording). */
   enterXR(): void;
   /** Store art: hide the paper's text and meter, and place the desktop camera (meters, degrees). */
-  art(on: boolean, camera?: { pos: [number, number, number]; pitch: number; fov?: number }): void;
+  art(on: boolean, camera?: { pos: [number, number, number]; pitch: number; fov?: number }, title?: string, titleSize?: number): void;
   /** The poses of a story creature, by id, to test free play. */
   posesFor(id: string): HandPose[];
   /** Current target poses, shifted in position (meters) to test the matcher. */
@@ -766,7 +766,15 @@ export class GameSystem extends createSystem({}) {
       u.uMeter.value = 0;
       if (this.theater.inkTex.version !== this.artInkVersion) {
         const c = this.theater.ink;
-        c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+        const g = c.getContext('2d')!;
+        g.clearRect(0, 0, c.width, c.height);
+        if (this.artTitle) {
+          g.fillStyle = '#000';
+          g.textAlign = 'center';
+          g.textBaseline = 'alphabetic';
+          g.font = `italic 600 ${this.artTitleSize}px Georgia, serif`;
+          g.fillText(this.artTitle, 512, 40 + this.artTitleSize);
+        }
         this.theater.inkTex.needsUpdate = true;
         this.artInkVersion = this.theater.inkTex.version;
       }
@@ -774,6 +782,8 @@ export class GameSystem extends createSystem({}) {
   }
   private magic = 0;
   private artMode = false;
+  private artTitle = '';
+  private artTitleSize = 150;
   private artInkVersion = -1;
 
   /** Chapter three: step the puzzle with the full shadow (forearm included) as solid ground. */
@@ -1266,9 +1276,14 @@ export class GameSystem extends createSystem({}) {
         if (iwer && this.world.session) iwer.quaternion.set(Math.sin(a / 2), 0, 0, Math.cos(a / 2));
         else this.world.camera.rotation.set(a, 0, 0, 'YXZ');
       },
-      art: (on, camera) => {
+      art: (on, camera, title, titleSize) => {
         this.artMode = on;
         this.artInkVersion = -1;
+        this.artTitle = title ?? '';
+        this.artTitleSize = titleSize ?? 150;
+        // store art allows no text but the title: blank the tray labels too
+        if (on) this.theater.drawLabels({ book: '', gentle: '', next: '' });
+        else this.updateLabels();
         if (camera) {
           const cam = this.world.camera;
           cam.position.set(camera.pos[0], camera.pos[1], camera.pos[2]);
