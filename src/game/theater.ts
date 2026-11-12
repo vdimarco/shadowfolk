@@ -74,6 +74,72 @@ void main() {
   gl_FragColor = vec4(light, light, light, 1.0);
 }`;
 
+const blurVert = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}`;
+
+// 9-tap Gaussian along one axis. Joins the capsules into one smooth shape.
+const blurFrag = /* glsl */ `
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uStep;
+varying vec2 vUv;
+void main() {
+  float c = texture2D(uSrc, vUv).r * 0.2270270;
+  c += texture2D(uSrc, vUv + uStep * 1.3846154).r * 0.3162162;
+  c += texture2D(uSrc, vUv - uStep * 1.3846154).r * 0.3162162;
+  c += texture2D(uSrc, vUv + uStep * 3.2307692).r * 0.0702703;
+  c += texture2D(uSrc, vUv - uStep * 3.2307692).r * 0.0702703;
+  gl_FragColor = vec4(c, c, c, 1.0);
+}`;
+
+/** Two-pass Gaussian blur from one texture into a smaller target. */
+class Blur {
+  readonly out: WebGLRenderTarget;
+  private tmp: WebGLRenderTarget;
+  private scene = new Scene();
+  private cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private mat: ShaderMaterial;
+  constructor(
+    w: number,
+    h: number,
+    private radius: number,
+  ) {
+    const opts = { depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false };
+    this.out = new WebGLRenderTarget(w, h, opts);
+    this.tmp = new WebGLRenderTarget(w, h, opts);
+    this.mat = new ShaderMaterial({
+      vertexShader: blurVert,
+      fragmentShader: blurFrag,
+      uniforms: { uSrc: { value: null }, uStep: { value: new Vector2() } },
+      depthTest: false,
+      depthWrite: false,
+    });
+    const quad = new Mesh(new PlaneGeometry(2, 2), this.mat);
+    quad.frustumCulled = false;
+    this.scene.add(quad);
+  }
+  setSize(w: number, h: number) {
+    this.out.setSize(w, h);
+    this.tmp.setSize(w, h);
+  }
+  /** Caller has turned XR off and saved the render target. */
+  run(renderer: WebGLRenderer, src: WebGLRenderTarget['texture']) {
+    const w = this.out.width, h = this.out.height;
+    this.mat.uniforms.uSrc.value = src;
+    this.mat.uniforms.uStep.value.set(this.radius / w, 0);
+    renderer.setRenderTarget(this.tmp);
+    renderer.render(this.scene, this.cam);
+    this.mat.uniforms.uSrc.value = this.tmp.texture;
+    this.mat.uniforms.uStep.value.set(0, this.radius / h);
+    renderer.setRenderTarget(this.out);
+    renderer.render(this.scene, this.cam);
+  }
+}
+
 /**
  * Paints a SegmentBuffer into a texture: one instanced quad per capsule.
  * The texture holds light (1 = no shadow); each capsule multiplies in its own
@@ -87,6 +153,16 @@ export class ShadowPass {
   private b: InstancedBufferAttribute;
   private clear = new Color();
   private readonly n: number;
+  /** The shadow with its capsules joined into one smooth shape (half size). */
+  private smooth = new Blur(RT_W / 2, RT_H / 2, 1.0);
+  /** A wide blur of the shadow, for the magic glow around it (quarter size). */
+  private wide = new Blur(RT_W / 4, RT_H / 4, 1.6);
+  get soft() {
+    return this.smooth.out.texture;
+  }
+  get glow() {
+    return this.wide.out.texture;
+  }
 
   /** `segs`: how many capsules the pass can draw. */
   constructor(segs = MAX_SEGS) {
@@ -124,6 +200,8 @@ export class ShadowPass {
 
   setSize(w: number, h: number) {
     this.rt.setSize(w, h);
+    this.smooth.setSize(Math.round(w / 2), Math.round(h / 2));
+    this.wide.setSize(Math.round(w / 4), Math.round(h / 4));
   }
 
   render(renderer: WebGLRenderer, buf: SegmentBuffer) {
@@ -153,6 +231,8 @@ export class ShadowPass {
     renderer.setClearColor(0xffffff, 1);
     renderer.clear(true, false, false);
     renderer.render(this.scene, this.cam);
+    this.smooth.run(renderer, this.rt.texture);
+    this.wide.run(renderer, this.smooth.out.texture);
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(this.clear, clearAlpha);
     renderer.autoClear = autoClear;
@@ -169,8 +249,12 @@ void main() {
 
 const wallFrag = /* glsl */ `
 precision highp float;
-uniform sampler2D uLive;
-uniform sampler2D uTarget;
+uniform sampler2D uLiveSoft;
+uniform sampler2D uLiveGlow;
+uniform sampler2D uTargetSoft;
+uniform sampler2D uTargetGlow;
+uniform float uMagic;        // 0..1: how close the player's shadow is to the shape
+uniform vec3 uTargetAura;    // glow color of the awake creature (gold; cold red for the wolf)
 uniform sampler2D uInk;
 uniform vec2 uWall;
 uniform vec2 uLamp;
@@ -214,14 +298,15 @@ void main() {
   vec4 ink = texture2D(uInk, vUv);
   col = mix(col, mix(vec3(0.32, 0.18, 0.1), vec3(0.05), uContrast) * lit, ink.a * 0.9);
 
-  float live = cov(uLive, vUv) * uLiveAlpha;
-  vec2 px = vec2(2.0 / 512.0, 2.0 / 352.0);
-  float t0 = cov(uTarget, vUv);
-  float edge = abs(t0 - cov(uTarget, vUv + vec2(px.x, 0.0)))
-             + abs(t0 - cov(uTarget, vUv - vec2(px.x, 0.0)))
-             + abs(t0 - cov(uTarget, vUv + vec2(0.0, px.y)))
-             + abs(t0 - cov(uTarget, vUv - vec2(0.0, px.y)));
-  float guide = clamp(edge * 1.5, 0.0, 1.0) * (1.0 - uTargetMode) * uTargetAlpha;
+  // smooth shadows: the capsules are blurred together, then given a clean, soft edge
+  float liveSoft = cov(uLiveSoft, vUv);
+  float live = smoothstep(0.28, 0.72, liveSoft) * uLiveAlpha;
+  float liveGlow = cov(uLiveGlow, vUv) * uLiveAlpha;
+  float tSoft = cov(uTargetSoft, vUv);
+  float t0 = smoothstep(0.28, 0.72, tSoft);
+  float tGlow = cov(uTargetGlow, vUv);
+  // the guide: a fine golden line along the smooth outline of the sleeping creature
+  float guide = exp(-pow((tSoft - 0.5) / 0.17, 2.0)) * (1.0 - uTargetMode) * uTargetAlpha;
   float ghost = t0 * (1.0 - uTargetMode) * uTargetAlpha * 0.1;
   float creature = t0 * uTargetMode * uTargetAlpha;
 
@@ -231,6 +316,26 @@ void main() {
   vec3 gold = mix(vec3(1.0, 0.72, 0.3), vec3(0.95, 0.55, 0.0), uContrast);
   float pulse = 0.75 + 0.25 * sin(uTime * 2.4);
   col = mix(col, gold * (1.1 + uHold), guide * pulse * (0.55 + 0.45 * (1.0 - live)));
+
+  // magic: a glow rises around your shadow as it gets close to the shape,
+  // with sparks drifting up through it; an awake creature always glows
+  float aura = clamp((liveGlow - live) * 2.4, 0.0, 1.0);
+  float tAura = clamp((tGlow - t0) * 2.4, 0.0, 1.0) * uTargetMode * uTargetAlpha;
+  float m = aura * uMagic;
+  col += vec3(0.42, 0.3, 0.85) * aura * 0.035 * (1.0 - uContrast);
+  col += gold * m * 0.6 * (0.85 + 0.15 * sin(uTime * 3.1));
+  col += uTargetAura * tAura * 0.6 * (0.85 + 0.15 * sin(uTime * 2.3));
+  m = max(m, tAura * step(0.5, uTargetAura.g));
+  vec2 g = p * vec2(70.0, 70.0) + vec2(0.0, -uTime * 2.2);
+  vec2 cell = floor(g);
+  float h = hash(cell);
+  vec2 sp = vec2(hash(cell + 1.7), hash(cell + 9.3)) - 0.5;
+  float tw = pow(max(0.0, sin(uTime * (1.5 + h * 4.0) + h * 40.0)), 6.0);
+  float spark = (1.0 - smoothstep(0.0, 0.11, length(fract(g) - 0.5 - sp * 0.6))) * step(0.78, h) * tw;
+  col += vec3(1.0, 0.92, 0.65) * spark * clamp(m * 2.2, 0.0, 1.0) * 1.6;
+  // holding the right shape: light flows into the shadow
+  float flow = noise(p * 26.0 + vec2(uTime * 0.7, -uTime * 1.1));
+  col = mix(col, gold * 1.15, live * uHold * uMagic * (0.12 + 0.18 * flow));
 
   // puzzle dots: ink-blue raindrops or glowing fireflies
   for (int i = 0; i < 32; i++) {
@@ -377,8 +482,12 @@ export class Theater {
       vertexShader: wallVert,
       fragmentShader: wallFrag,
       uniforms: {
-        uLive: { value: this.live.rt.texture },
-        uTarget: { value: this.target.rt.texture },
+        uLiveSoft: { value: this.live.soft },
+        uLiveGlow: { value: this.live.glow },
+        uTargetSoft: { value: this.target.soft },
+        uTargetGlow: { value: this.target.glow },
+        uMagic: { value: 0 },
+        uTargetAura: { value: new Color(1.0, 0.72, 0.3) },
         uInk: { value: this.inkTex },
         uWall: { value: new Vector2(WALL_W, WALL_H) },
         uLamp: { value: new Vector2(LIGHT[0], lampProjY + 0.1) },

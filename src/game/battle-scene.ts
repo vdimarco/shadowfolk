@@ -64,6 +64,8 @@ export class BattleScene {
   /** Every cast, hit and strike with its time, for the video's soundtrack. */
   readonly log: { t: number; type: string }[] = [];
   score = 0;
+  /** 0..1: how close the player's shadow is to any spell, for the glow. */
+  magic = 0;
 
   constructor(
     private theater: Theater,
@@ -114,6 +116,7 @@ export class BattleScene {
     this.sfx.setBattle(false);
     const u = this.theater.wallMat.uniforms;
     u.uRedEye.value.set(0, 0, 0, 0);
+    u.uTargetAura.value.setRGB(1.0, 0.72, 0.3);
     u.uFlash.value.set(0, 0, 0, 0);
     u.uFlames.value = -1;
     u.uDotCount.value = 0;
@@ -151,6 +154,7 @@ export class BattleScene {
       }
     }
     this.score += (bestScore - this.score) * Math.min(1, dt * 8);
+    this.magic = best >= 0 ? Math.max(0, Math.min(1, (bestRatio - 0.7) / 0.3)) : 0;
     if (this.needRelease >= 0 && (best !== this.needRelease || bestRatio < 0.88)) this.needRelease = -1;
     if (best !== this.best) this.hold = 0;
     this.best = best;
@@ -192,6 +196,8 @@ export class BattleScene {
     if (b.state === 'won') this.wolfAlpha = Math.max(0, this.wolfAlpha - dt * 0.8);
     u.uTargetMode.value = 1;
     u.uTargetAlpha.value = 1;
+    // the wolf's glow is cold and red, brighter as it gathers to bite
+    u.uTargetAura.value.setRGB(0.55 + 0.4 * wk, 0.08, 0.32 - 0.1 * wk);
     // the wolf fades by shrinking its capsules away into ink
     if (this.wolfAlpha < 1) {
       const d = this.segs.data;

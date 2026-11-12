@@ -16,7 +16,7 @@ One pass in the headset, about 15 minutes. Note anything that feels wrong; a sho
 | 3 | Look down | A tray with three brass buttons: Book, Gentle, Skip |
 | 4 | Starfish, Hare, Crocodile | Each wakes within a minute; a gold eye opens on it |
 | 5 | Wait on a shape without trying | After about 6 s a gold hand appears **on your own wrist**, showing the pose |
-| 6 | Dog | Thumb up, split between middle and ring fingers. Can you make it? |
+| 6 | Dog | Fingers to the side, thumb up, little finger dropped. Does it feel natural? |
 | 7 | Poke **Gentle**, then try a two-hand shape with one hand | One hand is enough in Gentle mode |
 | 8 | Poke **Skip** until "The Rain" | Rain falls from a cloud; your hand and arm shadow is a slide |
 | 9 | Rain: hold still with no drops landing for 12 s | A gold hand shows a slide that works |

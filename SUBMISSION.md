@@ -181,7 +181,7 @@ Shadowfolk: a hands-only shadow puppet game for Meta Quest (Meta VR Start 2026)
 
 Description:
 
-Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a starfish, a hare, a crocodile, a dog, a bird, a deer, a turkey, a bat, an owl and a spider. Then your shadow becomes solid for puzzles, and every creature becomes a spell in a battle against the Ink Wolf. After the story, a new shadow wakes every day.
+Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a starfish, a hare, a crocodile, a dog, a bird, a deer, a fox, a butterfly, an owl and a spider. Then your shadow becomes solid for puzzles, and every creature becomes a spell in a battle against the Ink Wolf. After the story, a new shadow wakes every day.
 
 - No controllers. Every action uses hand tracking.
 - Seated play, within a two-foot radius.

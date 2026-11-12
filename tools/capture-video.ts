@@ -303,7 +303,7 @@ async function playBattle() {
   const battleT0 = [...log0].reverse().find((e) => e.type === 'battle')?.t ?? 0;
   const nLog0 = log0.length;
   await hold(1.6);
-  const attacks = ['bird', 'dog', 'owl', 'crocodile', 'bat', 'dog', 'hare', 'crocodile', 'turkey', 'dog', 'bird', 'crocodile'];
+  const attacks = ['bird', 'dog', 'owl', 'crocodile', 'butterfly', 'dog', 'hare', 'crocodile', 'fox', 'dog', 'bird', 'crocodile'];
   const firstSay: Record<string, string> = {
     bird: 'Make a shape and hold it: the creature flies at the wolf.',
     dog: 'The dog and the crocodile hit twice as hard.',
@@ -408,8 +408,8 @@ try {
     dog: 'A soft hum rises as you get close.',
     bird: 'Some shadows need both hands.',
     deer: 'Every target is a real hand pose.',
-    turkey: 'Chapter two brings new shapes.',
-    bat: 'Chapter two: turn the bird upside down, and it hangs like a bat.',
+    fox: 'Chapter two brings new shapes.',
+    butterfly: 'Chapter two: hook your thumbs, and a butterfly opens its wings.',
     owl: 'Every target is a real hand pose. When a creature wakes, its eye opens.',
     spider: 'Ten story shadows teach the shapes.',
   };
@@ -438,7 +438,7 @@ try {
   }
 
   /** Played off camera to keep the video under three minutes. */
-  const offCamera = new Set(['hare', 'deer', 'turkey', 'spider']);
+  const offCamera = new Set(['hare', 'deer', 'fox', 'spider']);
   if (!ONLY_PUZZLES) {
     for (const lv of LEVELS) {
       recording = !offCamera.has(lv.id);

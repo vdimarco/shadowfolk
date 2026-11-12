@@ -21,8 +21,8 @@ export const SPELLS: Record<string, Spell> = {
   dog: { kind: 'charge', name: 'Dog Bite', damage: 2 },
   bird: { kind: 'swoop', name: 'Bird Swoop', damage: 1 },
   deer: { kind: 'heal', name: 'Deer Blessing', damage: 0 },
-  turkey: { kind: 'swoop', name: 'Turkey Rush', damage: 1 },
-  bat: { kind: 'swoop', name: 'Bat Dive', damage: 1 },
+  fox: { kind: 'charge', name: 'Fox Pounce', damage: 2 },
+  butterfly: { kind: 'swoop', name: 'Butterfly Swirl', damage: 1 },
   owl: { kind: 'swoop', name: 'Owl Strike', damage: 1 },
   spider: { kind: 'web', name: 'Spider Web', damage: 0 },
 };

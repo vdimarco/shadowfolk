@@ -99,7 +99,7 @@ for (const gentle of [false, true]) {
 }
 
 // 7. every story creature is a spell
-for (const id of ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', 'turkey', 'bat', 'owl', 'spider']) check(!!SPELLS[id], `${id} is a spell: ${SPELLS[id]?.name}`);
+for (const id of ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', 'fox', 'butterfly', 'owl', 'spider']) check(!!SPELLS[id], `${id} is a spell: ${SPELLS[id]?.name}`);
 
 console.log(fails ? `\n${fails} FAIL` : '\nall battle checks pass');
 process.exit(fails ? 1 : 0);

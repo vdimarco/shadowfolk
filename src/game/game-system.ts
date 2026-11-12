@@ -25,10 +25,14 @@ import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
 import { NightWorld } from './world.js';
 import { BattleScene } from './battle-scene.js';
+import { JointFilter } from './smooth.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle';
 
-const HOLD_TIME = 0.7;
+const HOLD_TIME = 0.55;
+/** Close but not quite: stay this near the shape for NEAR_TIME and it wakes anyway. */
+const NEAR_MARGIN = 0.06;
+const NEAR_TIME = 2.0;
 const WAKE_TIME = 4.5;
 const INTRO_AREA = 120;
 const SIDES_LR = ['left', 'right'] as const;
@@ -59,6 +63,8 @@ interface DebugApi {
   setCameraPitch(deg: number): void;
   /** Start the immersive session (used with the IWER emulator for recording). */
   enterXR(): void;
+  /** Store art: hide the paper's text and meter, and place the desktop camera (meters, degrees). */
+  art(on: boolean, camera?: { pos: [number, number, number]; pitch: number; fov?: number }): void;
   /** The poses of a story creature, by id, to test free play. */
   posesFor(id: string): HandPose[];
   /** Current target poses, shifted in position (meters) to test the matcher. */
@@ -147,6 +153,8 @@ export class GameSystem extends createSystem({}) {
 
   private joints = { left: new Float32Array(JOINT_COUNT * 3), right: new Float32Array(JOINT_COUNT * 3) };
   private present = { left: false, right: false };
+  /** Tracked joints shimmer a little; smooth them so the shadow's edge is calm. */
+  private filters = { left: new JointFilter(), right: new JointFilter() };
   private poseBuf = new Float32Array(16 * JOINT_COUNT);
   private jointSpaces = new WeakMap<XRHand, XRJointSpace[]>();
   private m4 = new Matrix4();
@@ -159,6 +167,7 @@ export class GameSystem extends createSystem({}) {
   private level: Level = LEVELS[0];
   private score = 0;
   private hold = 0;
+  private nearHold = 0;
   private introHold = 0;
   private anchored = false;
   private anchorFrames = 0;
@@ -213,6 +222,7 @@ export class GameSystem extends createSystem({}) {
     this.state = s;
     this.stateTime = 0;
     this.hold = 0;
+    this.nearHold = 0;
     const u = this.theater.wallMat.uniforms;
     switch (s) {
       case 'intro':
@@ -235,6 +245,7 @@ export class GameSystem extends createSystem({}) {
       case 'wake':
         u.uTargetMode.value = 1;
         u.uMeter.value = 0;
+        u.uFlash.value.y = 0.7; // a soft golden flash as the shadow comes alive
         this.sfx.chime();
         this.sfx.setCloseness(0, 1);
         this.ink([this.level.name], wrap(this.level.wake, 52), '');
@@ -451,7 +462,7 @@ export class GameSystem extends createSystem({}) {
     this.theater.wallMat.uniforms.uContrast.value = this.progress.gentle ? 1 : 0;
   }
 
-  private readHands() {
+  private readHands(dt: number) {
     const frame = this.world.xrFrame;
     const ref = this.world.xrReferenceSpace;
     const session = this.world.session;
@@ -504,8 +515,11 @@ export class GameSystem extends createSystem({}) {
         out[j * 3 + 1] = this.v.y;
         out[j * 3 + 2] = this.v.z;
       }
+      this.filters[src.handedness].apply(out, dt);
       this.present[src.handedness] = true;
     }
+    if (!this.present.left) this.filters.left.reset();
+    if (!this.present.right) this.filters.right.reset();
   }
 
   /** Desktop demo: hands drift in, then settle into the target shape. */
@@ -593,7 +607,7 @@ export class GameSystem extends createSystem({}) {
     if (this.paused) return;
     this.stateTime += dt;
 
-    this.readHands();
+    this.readHands(dt);
     this.checkButtons(dt);
     const simulated = !!this.simPoses || this.demo;
     const showR = simulated && this.present.right;
@@ -667,8 +681,10 @@ export class GameSystem extends createSystem({}) {
         const thr = this.threshold();
         this.sfx.setCloseness(this.score, thr);
         this.hold = raw >= thr ? this.hold + dt : Math.max(0, this.hold - dt * 2);
-        u.uHold.value = Math.min(1, this.hold / HOLD_TIME);
-        if (this.hold >= HOLD_TIME) {
+        this.nearHold = raw >= thr - NEAR_MARGIN ? this.nearHold + dt : Math.max(0, this.nearHold - dt * 2);
+        u.uHold.value = Math.min(1, Math.max(this.hold / HOLD_TIME, this.nearHold / NEAR_TIME));
+        if (this.hold >= HOLD_TIME || this.nearHold >= NEAR_TIME) {
+          this.nearHold = 0;
           const am = this.activeMatcher ?? this.matcher;
           const st = am.lastStats;
           const ts = am.targetStats;
@@ -721,7 +737,33 @@ export class GameSystem extends createSystem({}) {
       default:
         break;
     }
+    // magic: the glow around the shadow follows how close it is to the shape
+    let want = 0;
+    if (this.state === 'level' || this.state === 'free') {
+      const thr = u.uThreshold.value as number;
+      want = Math.max(0, Math.min(1, (this.score - (thr - 0.24)) / 0.24));
+    } else if (this.state === 'battle') {
+      want = this.battleScene.magic;
+    } else if (this.state === 'intro') {
+      want = this.present.left || this.present.right ? 0.45 : 0;
+    }
+    this.magic += (want - this.magic) * Math.min(1, dt * 5);
+    if (this.state !== 'battle') u.uFlash.value.y = Math.max(0, u.uFlash.value.y - dt * 1.6);
+    u.uMagic.value = this.magic;
+    // art mode (store images): a clean paper with no text and no meter
+    if (this.artMode) {
+      u.uMeter.value = 0;
+      if (this.theater.inkTex.version !== this.artInkVersion) {
+        const c = this.theater.ink;
+        c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+        this.theater.inkTex.needsUpdate = true;
+        this.artInkVersion = this.theater.inkTex.version;
+      }
+    }
   }
+  private magic = 0;
+  private artMode = false;
+  private artInkVersion = -1;
 
   /** Chapter three: step the puzzle with the full shadow (forearm included) as solid ground. */
   private updatePuzzle(dt: number) {
@@ -1181,6 +1223,19 @@ export class GameSystem extends createSystem({}) {
         const a = (deg * Math.PI) / 180;
         if (iwer && this.world.session) iwer.quaternion.set(Math.sin(a / 2), 0, 0, Math.cos(a / 2));
         else this.world.camera.rotation.set(a, 0, 0, 'YXZ');
+      },
+      art: (on, camera) => {
+        this.artMode = on;
+        this.artInkVersion = -1;
+        if (camera) {
+          const cam = this.world.camera;
+          cam.position.set(camera.pos[0], camera.pos[1], camera.pos[2]);
+          cam.rotation.set((camera.pitch * Math.PI) / 180, 0, 0, 'YXZ');
+          if (camera.fov) {
+            cam.fov = camera.fov;
+            cam.updateProjectionMatrix();
+          }
+        }
       },
       enterXR: () => {
         if (this.world.xrEnabled) this.world.launchXR();
