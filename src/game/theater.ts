@@ -15,6 +15,7 @@ import {
   InstancedBufferGeometry,
   LinearFilter,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   OrthographicCamera,
   PlaneGeometry,
@@ -294,9 +295,15 @@ void main() {
   float lit = mix(1.2 / (1.0 + d * d * 3.0), 1.0, uContrast * 0.7) * flicker;
   vec3 col = paper * lit;
 
+  // a storybook page: a fine gold double border just inside the edge
+  vec2 e = uWall * 0.5 - abs(p);
+  float edgeD = min(e.x, e.y);
+  float border = smoothstep(0.0025, 0.0, abs(edgeD - 0.03)) + 0.6 * smoothstep(0.0015, 0.0, abs(edgeD - 0.04));
+  col = mix(col, mix(vec3(0.85, 0.6, 0.25), vec3(0.6, 0.4, 0.1), uContrast) * lit * 1.1, border * 0.8);
+
   // ink overlay (text, book)
   vec4 ink = texture2D(uInk, vUv);
-  col = mix(col, mix(vec3(0.32, 0.18, 0.1), vec3(0.05), uContrast) * lit, ink.a * 0.9);
+  col = mix(col, mix(vec3(0.2, 0.09, 0.26), vec3(0.05), uContrast) * lit, ink.a * 0.92);
 
   // smooth shadows: the capsules are blurred together, then given a clean, soft edge
   float liveSoft = cov(uLiveSoft, vUv);
@@ -515,7 +522,7 @@ export class Theater {
     wall.name = 'Paper Wall';
     this.root.add(wall);
 
-    const wood = new MeshStandardMaterial({ color: new Color(0.16, 0.085, 0.05), roughness: 0.7 });
+    const wood = new MeshStandardMaterial({ color: new Color(0.13, 0.05, 0.12), roughness: 0.6, metalness: 0.1 });
     const frame = (w: number, h: number, x: number, y: number) => {
       const m = new Mesh(new BoxGeometry(w, h, 0.05), wood);
       m.position.set(x, WALL_CY + y, WALL_Z - 0.01);
@@ -526,6 +533,18 @@ export class Theater {
     frame(WALL_W + 2 * t, t, 0, -WALL_H / 2 - t / 2);
     frame(t, WALL_H, -WALL_W / 2 - t / 2, 0);
     frame(t, WALL_H, WALL_W / 2 + t / 2, 0);
+    // a gold edge around the paper, like a gilded storybook frame
+    const gilt = new MeshBasicMaterial({ color: new Color(1.0, 0.74, 0.34), toneMapped: false });
+    const edge = (w: number, h: number, x: number, y: number) => {
+      const m = new Mesh(new BoxGeometry(w, h, 0.012), gilt);
+      m.position.set(x, WALL_CY + y, WALL_Z + 0.02);
+      this.root.add(m);
+    };
+    const g = 0.008;
+    edge(WALL_W + 2 * g, g, 0, WALL_H / 2 + g / 2);
+    edge(WALL_W + 2 * g, g, 0, -WALL_H / 2 - g / 2);
+    edge(g, WALL_H, -WALL_W / 2 - g / 2, 0);
+    edge(g, WALL_H, WALL_W / 2 + g / 2, 0);
     // legs to the floor
     for (const x of [-WALL_W / 2 - t / 2, WALL_W / 2 + t / 2]) {
       const leg = new Mesh(new BoxGeometry(t, 0.8, t), wood);

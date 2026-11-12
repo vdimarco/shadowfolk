@@ -1,9 +1,9 @@
 /**
- * The night world around the shadow theater: a starry sky with a moon, a
- * forest silhouette, grass, a wooden stage with velvet curtains, paper
- * lanterns, and fireflies drifting around the player.
- * Everything is procedural and cheap: a handful of draw calls, no textures
- * except two small canvas sprites, and all motion in shaders.
+ * The world around the shadow theater, in a papercut storybook style: a
+ * violet night sky with an aurora and a haloed moon, rings of cut-paper hills
+ * and trees with glowing gold edges, a carved papercut arch around the screen,
+ * paper lanterns, and drifting motes of light.
+ * Everything is procedural: a few draw calls, no image files, motion in shaders.
  */
 import {
   AdditiveBlending,
@@ -14,36 +14,46 @@ import {
   CanvasTexture,
   CircleGeometry,
   Color,
-  ConeGeometry,
   CylinderGeometry,
   DoubleSide,
   Group,
-  InstancedMesh,
   Line,
   LineBasicMaterial,
-  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   PointLight,
   Points,
-  Quaternion,
   ShaderMaterial,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
-  Vector3,
+  Vector2,
 } from '@iwsdk/core';
 import { WALL_CY, WALL_H, WALL_W, WALL_Z } from './silhouette.js';
 
 const FLOOR_Y = -1.2;
 const STAGE_TOP = -0.98;
-const HORIZON = new Color(0.07, 0.09, 0.17);
 
 let seed = 3;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+const NOISE = /* glsl */ `
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; }
+  return v;
+}`;
+
+// ------------------------------------------------------------------ sky
 
 const skyVert = /* glsl */ `
 varying vec3 vDir;
@@ -55,93 +65,227 @@ void main() {
 const skyFrag = /* glsl */ `
 precision highp float;
 uniform float uTime;
-uniform vec3 uHorizon;
 varying vec3 vDir;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+${NOISE}
 void main() {
   vec3 d = normalize(vDir);
-  float up = clamp(d.y, -1.0, 1.0);
-  vec3 zenith = vec3(0.008, 0.01, 0.03);
-  vec3 col = mix(uHorizon, zenith, smoothstep(0.0, 0.55, up));
-  col = mix(col, uHorizon * 0.5, smoothstep(0.0, -0.2, up));
-  // a faint band of the Milky Way
-  float band = exp(-pow((d.y - 0.35 * d.x) * 3.0, 2.0)) * smoothstep(-0.05, 0.3, up);
-  col += vec3(0.05, 0.05, 0.08) * band;
-  // stars: one candidate per cell, a few levels of brightness, gentle twinkle
-  vec2 uv = vec2(atan(d.z, d.x), asin(up));
+  float up = d.y;
+  // violet dusk at the horizon, deep indigo above
+  vec3 horizon = vec3(0.30, 0.13, 0.36);
+  vec3 mid = vec3(0.07, 0.05, 0.20);
+  vec3 zenith = vec3(0.01, 0.012, 0.05);
+  vec3 col = mix(horizon, mid, smoothstep(-0.02, 0.22, up));
+  col = mix(col, zenith, smoothstep(0.22, 0.75, up));
+  // aurora: slow ribbons of teal and rose
+  // (only in its band of sky, to keep the full-screen sky cheap on the headset)
+  if (up > 0.05 && up < 0.7) {
+    vec2 a = vec2(atan(d.z, d.x) * 1.6, up * 4.0);
+    float flow = fbm(vec2(a.x * 1.3 + uTime * 0.025, a.y * 0.6 - uTime * 0.04));
+    float ribbon = exp(-pow((up - 0.32 - 0.12 * sin(a.x * 1.7 + flow * 3.0)) * 7.0, 2.0));
+    if (ribbon > 0.01) {
+      float curtain = smoothstep(0.35, 0.8, fbm(vec2(a.x * 5.0 + uTime * 0.05, up * 2.0)));
+      vec3 aur = mix(vec3(0.15, 0.85, 0.7), vec3(0.85, 0.35, 0.8), smoothstep(0.2, 0.55, up + flow * 0.2));
+      col += aur * ribbon * curtain * 0.32 * smoothstep(0.05, 0.25, up);
+    }
+  }
+  // stars, a few bright, twinkling
+  vec2 uv = vec2(atan(d.z, d.x), asin(clamp(up, -1.0, 1.0)));
   for (int k = 0; k < 2; k++) {
-    float sc = k == 0 ? 120.0 : 260.0;
+    float sc = k == 0 ? 90.0 : 220.0;
     vec2 g = uv * vec2(sc, sc * 0.5);
     vec2 cell = floor(g);
     float h = hash(cell + float(k) * 17.0);
-    if (h > 0.985 && up > 0.02) {
+    if (h > 0.982 && up > 0.04) {
       vec2 c = vec2(hash(cell + 3.1), hash(cell + 7.7));
       float dist = length(fract(g) - c);
-      float tw = 0.65 + 0.35 * sin(uTime * (1.0 + h * 3.0) + h * 80.0);
-      float b = (h - 0.985) / 0.015;
-      col += vec3(0.85, 0.9, 1.0) * smoothstep(0.12, 0.0, dist) * b * tw * (k == 0 ? 1.2 : 0.7);
+      float tw = 0.6 + 0.4 * sin(uTime * (1.0 + h * 3.0) + h * 80.0);
+      float b = (h - 0.982) / 0.018;
+      vec3 sc2 = mix(vec3(1.0, 0.92, 0.75), vec3(0.75, 0.9, 1.0), hash(cell + 1.0));
+      col += sc2 * smoothstep(0.14, 0.0, dist) * b * tw * (k == 0 ? 1.6 : 0.8);
+      // the brightest stars get a little cross of light
+      if (k == 0 && h > 0.996) {
+        vec2 q = fract(g) - c;
+        col += sc2 * (exp(-abs(q.x) * 60.0) * exp(-abs(q.y) * 9.0) + exp(-abs(q.y) * 60.0) * exp(-abs(q.x) * 9.0)) * 0.5 * tw;
+      }
     }
   }
-  // the moon: a soft crescent with a halo
-  vec3 m = normalize(vec3(-0.55, 0.42, -0.72));
+  // a big full moon with papercut halo rings
+  vec3 m = normalize(vec3(-0.42, 0.36, -0.83));
   float md = acos(clamp(dot(d, m), -1.0, 1.0));
-  vec3 m2 = normalize(m + vec3(0.018, 0.012, 0.0));
-  float md2 = acos(clamp(dot(d, m2), -1.0, 1.0));
-  float disc = smoothstep(0.034, 0.03, md) * (1.0 - smoothstep(0.03, 0.026, md2) * 0.92);
-  col += vec3(1.0, 0.95, 0.82) * disc * 1.2;
-  col += vec3(0.25, 0.3, 0.45) * exp(-md * md * 90.0) * 0.35;
+  if (md < 0.08) {
+    float disc = smoothstep(0.075, 0.07, md);
+    float craters = fbm(vec2(d.x, d.y) * 40.0);
+    col = mix(col, vec3(1.0, 0.93, 0.78) * (0.92 + 0.12 * craters), disc);
+  }
+  float rings = 0.0;
+  for (int i = 1; i <= 3; i++) {
+    float r = 0.075 + float(i) * 0.05;
+    rings += smoothstep(0.004, 0.0, abs(md - r)) * (0.5 / float(i));
+  }
+  col += vec3(1.0, 0.85, 0.55) * rings * 0.35;
+  col += vec3(0.55, 0.45, 0.75) * exp(-md * md * 28.0) * 0.35;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-const groundFrag = /* glsl */ `
-precision highp float;
-uniform vec3 uHorizon;
+// ------------------------------------------------------- papercut hills
+
+/** A cylinder of cut paper seen from inside: hills and trees, with a glowing gold edge. */
+const hillVert = /* glsl */ `
 varying vec3 vP;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
-}
 void main() {
-  float r = length(vP.xz);
-  float n = noise(vP.xz * 1.5) * 0.6 + noise(vP.xz * 9.0) * 0.4;
-  vec3 grass = mix(vec3(0.012, 0.03, 0.02), vec3(0.03, 0.06, 0.035), n);
-  // warm spill from the theater near the stage
-  float warm = exp(-dot(vP.xz - vec2(0.0, -1.3), vP.xz - vec2(0.0, -1.3)) * 0.35);
-  grass += vec3(0.16, 0.09, 0.03) * warm;
-  vec3 col = mix(grass, uHorizon * 0.7, smoothstep(6.0, 40.0, r));
+  vP = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const hillFrag = /* glsl */ `
+precision highp float;
+uniform float uSeed;
+uniform float uHeight;
+uniform float uTrees;
+uniform vec3 uColor;
+uniform vec3 uRim;
+uniform float uTime;
+varying vec3 vP;
+${NOISE}
+void main() {
+  float ang = atan(vP.x, vP.z);
+  float t = ang * 6.0 + uSeed * 10.0;
+  // rolling hills
+  float h = uHeight * (0.55 + 0.25 * sin(t * 0.5) + 0.15 * sin(t * 1.3 + 1.7) + 0.08 * sin(t * 3.1));
+  // stylized trees: rounded tips in clumps
+  float cell = floor(t * uTrees);
+  float f = fract(t * uTrees) - 0.5;
+  float has = step(0.45, hash(vec2(cell, uSeed)));
+  float th = uHeight * (0.35 + 0.45 * hash(vec2(cell, uSeed + 4.0))) * has;
+  float tree = th * max(0.0, 1.0 - pow(abs(f) * 2.2, 1.6));
+  float top = h + tree;
+  float y = vP.y;
+  if (y > top) discard;
+  // the paper: a soft fibre texture and a shade that deepens downward
+  float fib = noise(vec2(ang * 300.0, y * 40.0)) * 0.05;
+  vec3 col = uColor * (0.85 + 0.25 * smoothstep(top - 1.5, top, y)) - fib * 0.3;
+  // the gold edge where the paper was cut, catching the moonlight
+  float edge = smoothstep(0.09, 0.0, top - y);
+  float shimmer = 0.75 + 0.25 * sin(uTime * 1.3 + ang * 40.0 + uSeed);
+  col = mix(col, uRim, edge * 0.85 * shimmer);
   gl_FragColor = vec4(col, 1.0);
 }`;
+
+// ------------------------------------------------------------ ground
+
 const groundVert = /* glsl */ `
 varying vec3 vP;
 void main() {
   vP = (modelMatrix * vec4(position, 1.0)).xyz;
   gl_Position = projectionMatrix * viewMatrix * vec4(vP, 1.0);
 }`;
+const groundFrag = /* glsl */ `
+precision highp float;
+uniform float uFloor;
+varying vec3 vP;
+${NOISE}
+void main() {
+  vec2 p = vP.xz;
+  float n = noise(p * 0.8) * 0.35 + noise(p * 1.7) * 0.15 + noise(p * 14.0) * 0.12;
+  vec3 col = mix(vec3(0.03, 0.02, 0.07), vec3(0.07, 0.04, 0.12), n);
+  // warm light pooled under the stage
+  float warm = exp(-dot(p - vec2(0.0, -1.1), p - vec2(0.0, -1.1)) * 0.45);
+  col += vec3(0.35, 0.18, 0.06) * warm * 0.55;
+  gl_FragColor = vec4(col, 1.0);
+}`;
 
-const flyVert = /* glsl */ `
+// ------------------------------------------------------- papercut arch
+
+/**
+ * The stage arch: a sheet of cut paper with a window for the screen, an
+ * arched top, scalloped outer edge, little cut-out stars, and a gold rim.
+ * uLayer 0 is the front sheet, 1 the lighter sheet just behind it.
+ */
+const archVert = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = position.xy;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const archFrag = /* glsl */ `
+precision highp float;
+uniform vec2 uHalf;      // half width and height of the sheet
+uniform vec2 uWin;       // half width of the window, height of its straight sides
+uniform float uArch;     // height of the arched top above the sides
+uniform float uInset;    // the back sheet's window is a little smaller
+uniform vec3 uColor;
+uniform vec3 uRim;
+uniform float uTime;
+varying vec2 vUv;
+${NOISE}
+float sdWindow(vec2 p, float grow) {
+  float w = uWin.x - grow;
+  float x = clamp(p.x / w, -1.0, 1.0);
+  float topY = uWin.y + uArch * pow(1.0 - x * x, 0.6) - grow;
+  float dx = abs(p.x) - w;
+  float dyTop = p.y - topY;
+  float dyBot = -uHalf.y - 1.0 - p.y; // open at the bottom
+  return max(max(dx, dyTop), dyBot);
+}
+void main() {
+  vec2 p = vUv;
+  float win = sdWindow(p, uInset);
+  if (win < 0.0) discard;
+  // scalloped outer edge
+  float sc = 0.05 * (0.5 + 0.5 * cos(p.x * 28.0));
+  if (p.y > uHalf.y - sc) discard;
+  // cut-out stars and moons in the paper
+  vec2 g = p * vec2(9.0, 9.0);
+  vec2 cell = floor(g);
+  float h = hash(cell + uInset * 31.0);
+  vec2 q = fract(g) - 0.5;
+  float star = 0.0;
+  if (h > 0.6 && win > 0.07) {
+    float a = atan(q.y, q.x);
+    float r = length(q);
+    float rs = 0.11 + 0.06 * cos(a * 5.0 + h * 6.0);
+    star = step(r, rs * (0.5 + h * 0.5));
+    if (star > 0.5) discard;
+  }
+  float fib = noise(p * vec2(120.0, 30.0)) * 0.05;
+  vec3 col = uColor * (0.9 + 0.2 * smoothstep(-uHalf.y, uHalf.y, p.y)) - fib * 0.2;
+  // a gold line drawn just outside the window, and a glow on the cut edge
+  float line = smoothstep(0.006, 0.0, abs(win - 0.045));
+  float rim = smoothstep(0.018, 0.0, win);
+  float shimmer = 0.8 + 0.2 * sin(uTime * 2.0 + p.x * 6.0 + p.y * 4.0);
+  col = mix(col, uRim, max(line * 0.9, rim) * shimmer);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+// ---------------------------------------------------------------- motes
+
+const moteVert = /* glsl */ `
 uniform float uTime;
 attribute float aPhase;
 varying float vGlow;
+varying float vHue;
 void main() {
   vec3 p = position;
-  p.x += sin(uTime * 0.35 + aPhase * 6.0) * 0.35;
-  p.y += sin(uTime * 0.5 + aPhase * 9.0) * 0.18;
-  p.z += cos(uTime * 0.3 + aPhase * 4.0) * 0.35;
+  p.x += sin(uTime * 0.3 + aPhase * 6.0) * 0.35;
+  p.y += sin(uTime * 0.45 + aPhase * 9.0) * 0.2 + mod(uTime * 0.04 + aPhase * 3.0, 1.0) * 0.4;
+  p.z += cos(uTime * 0.27 + aPhase * 4.0) * 0.35;
   vGlow = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(uTime * (0.8 + aPhase) + aPhase * 40.0), 3.0);
+  vHue = aPhase;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  gl_PointSize = 70.0 / -mv.z;
+  gl_PointSize = 80.0 / -mv.z;
   gl_Position = projectionMatrix * mv;
 }`;
-const flyFrag = /* glsl */ `
+const moteFrag = /* glsl */ `
 precision highp float;
 varying float vGlow;
+varying float vHue;
 void main() {
   vec2 c = gl_PointCoord - 0.5;
   float d = length(c);
-  float a = exp(-d * d * 30.0) + exp(-d * d * 180.0);
-  gl_FragColor = vec4(vec3(1.0, 0.85, 0.35) * a * vGlow, 1.0);
+  float a = exp(-d * d * 30.0) + exp(-d * d * 200.0);
+  vec3 gold = vec3(1.0, 0.82, 0.4);
+  vec3 teal = vec3(0.45, 1.0, 0.85);
+  gl_FragColor = vec4(mix(gold, teal, step(0.72, vHue)) * a * vGlow, 1.0);
 }`;
 
 function glowTexture() {
@@ -159,21 +303,6 @@ function glowTexture() {
   return t;
 }
 
-/** A hanging curtain panel with soft vertical folds. */
-function curtain(width: number, height: number, folds: number, mat: MeshStandardMaterial) {
-  const geo = new PlaneGeometry(width, height, folds * 6, 8);
-  const pos = geo.getAttribute('position') as BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    // folds get deeper toward the floor
-    const depth = 0.035 + 0.025 * (0.5 - y / height);
-    pos.setZ(i, Math.sin((x / width) * Math.PI * 2 * folds) * depth);
-  }
-  geo.computeVertexNormals();
-  return new Mesh(geo, mat);
-}
-
 export class NightWorld {
   readonly root = new Group();
   private timed: ShaderMaterial[] = [];
@@ -184,24 +313,15 @@ export class NightWorld {
     seed = 3;
 
     // sky dome
-    const skyMat = new ShaderMaterial({
-      vertexShader: skyVert,
-      fragmentShader: skyFrag,
-      uniforms: { uTime: { value: 0 }, uHorizon: { value: HORIZON } },
-      side: BackSide,
-      depthWrite: false,
-    });
+    const skyMat = new ShaderMaterial({ vertexShader: skyVert, fragmentShader: skyFrag, uniforms: { uTime: { value: 0 } }, side: BackSide, depthWrite: false });
     this.timed.push(skyMat);
     const sky = new Mesh(new SphereGeometry(70, 32, 16), skyMat);
     sky.renderOrder = -10;
     sky.frustumCulled = false;
     this.root.add(sky);
 
-    // grass, fading into the horizon
-    const ground = new Mesh(
-      new CircleGeometry(60, 48),
-      new ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: { uHorizon: { value: HORIZON } } }),
-    );
+    // the ground: dark paper, warm under the stage
+    const ground = new Mesh(new CircleGeometry(60, 48), new ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: { uFloor: { value: FLOOR_Y } } }));
     ground.rotation.x = -Math.PI / 2;
     // keep the disc's center vertex away from the spot under the viewer: a vertex
     // there has a view depth of exactly zero when the head is level, and some
@@ -209,118 +329,127 @@ export class NightWorld {
     ground.position.set(0, FLOOR_Y, -4);
     this.root.add(ground);
 
-    // forest silhouette: two rings of pines, never in front of the stage
-    const pine = new ConeGeometry(1, 1, 7);
-    pine.translate(0, 0.5, 0);
-    const treeMat = new MeshBasicMaterial({ color: new Color(0.012, 0.016, 0.03) });
-    const N = 140;
-    const trees = new InstancedMesh(pine, treeMat, N);
-    const m = new Matrix4();
-    const q = new Quaternion();
-    const s = new Vector3();
-    const p = new Vector3();
-    for (let i = 0; i < N; i++) {
-      const a = rnd() * Math.PI * 2;
-      const r = 14 + rnd() * 26;
-      const h = 5 + rnd() * 8;
-      p.set(Math.sin(a) * r, FLOOR_Y - 0.2, Math.cos(a) * r);
-      s.set(h * (0.22 + rnd() * 0.12), h, h * (0.22 + rnd() * 0.12));
-      m.compose(p, q, s);
-      trees.setMatrixAt(i, m);
-    }
-    this.root.add(trees);
+    // rings of cut-paper hills: dark and close, then lighter and misty far away
+    const layers: [number, number, number, Color, Color][] = [
+      [34, 9.0, 0.6, new Color(0.2, 0.12, 0.34), new Color(0.75, 0.6, 0.95)],
+      [22, 6.0, 0.9, new Color(0.13, 0.07, 0.25), new Color(0.95, 0.7, 0.55)],
+      [13, 3.8, 1.3, new Color(0.07, 0.04, 0.16), new Color(1.0, 0.72, 0.35)],
+      [7.5, 2.2, 1.8, new Color(0.035, 0.02, 0.08), new Color(1.0, 0.78, 0.38)],
+    ];
+    layers.forEach(([r, h, trees, col, rim], i) => {
+      const mat = new ShaderMaterial({
+        vertexShader: hillVert,
+        fragmentShader: hillFrag,
+        uniforms: {
+          uSeed: { value: i * 1.37 + 0.4 },
+          uHeight: { value: h },
+          uTrees: { value: trees },
+          uColor: { value: col },
+          uRim: { value: rim },
+          uTime: { value: 0 },
+        },
+        side: BackSide,
+      });
+      this.timed.push(mat);
+      const geo = new CylinderGeometry(r, r, h * 2.2, 160, 1, true);
+      geo.translate(0, h * 1.1, 0);
+      const ring = new Mesh(geo, mat);
+      ring.position.y = FLOOR_Y - 0.1;
+      ring.renderOrder = -9 + i;
+      ring.frustumCulled = false;
+      this.root.add(ring);
+    });
 
-    // the stage: a wooden deck under the screen, reaching toward the player
-    const wood = new MeshStandardMaterial({ color: new Color(0.22, 0.12, 0.06), roughness: 0.8 });
-    const darkWood = new MeshStandardMaterial({ color: new Color(0.11, 0.055, 0.03), roughness: 0.7 });
-    const deck = new Mesh(new BoxGeometry(3.4, STAGE_TOP - FLOOR_Y, 1.2), wood);
+    // the stage: a dark plum deck with a gold edge
+    const plum = new MeshStandardMaterial({ color: new Color(0.1, 0.04, 0.1), roughness: 0.85 });
+    const gold = new MeshBasicMaterial({ color: new Color(1.0, 0.72, 0.32), toneMapped: false });
+    const deck = new Mesh(new BoxGeometry(3.4, STAGE_TOP - FLOOR_Y, 1.2), plum);
     deck.position.set(0, (STAGE_TOP + FLOOR_Y) / 2, WALL_Z - 0.2);
     this.root.add(deck);
-    // proscenium: posts and a top beam around the screen
-    const top = WALL_CY + WALL_H / 2 + 0.42;
-    for (const x of [-1.62, 1.62]) {
-      const post = new Mesh(new BoxGeometry(0.12, top - STAGE_TOP, 0.12), darkWood);
-      post.position.set(x, (top + STAGE_TOP) / 2, WALL_Z + 0.06);
-      this.root.add(post);
-    }
-    const beam = new Mesh(new BoxGeometry(3.44, 0.14, 0.14), darkWood);
-    beam.position.set(0, top, WALL_Z + 0.06);
-    this.root.add(beam);
+    const lip = new Mesh(new BoxGeometry(3.4, 0.012, 0.012), gold);
+    lip.position.set(0, STAGE_TOP, WALL_Z + 0.4);
+    this.root.add(lip);
 
-    // velvet curtains drawn open on both sides, and a valance on top
-    const velvet = new MeshStandardMaterial({ color: new Color(0.16, 0.012, 0.025), roughness: 1, side: DoubleSide });
-    const ch = top - STAGE_TOP - 0.07;
-    for (const side of [-1, 1]) {
-      const c = curtain(0.42, ch, 3, velvet);
-      c.position.set(side * 1.36, STAGE_TOP + ch / 2, WALL_Z + 0.12);
-      this.root.add(c);
+    // the papercut arch around the screen: two sheets for depth
+    const archW = 2.36, archH = 2.2;
+    const cy = WALL_CY + 0.12;
+    const sheets: [number, number, Color, Color][] = [
+      [WALL_Z + 0.14, 0.06, new Color(0.22, 0.09, 0.3), new Color(0.6, 0.9, 1.0)],
+      [WALL_Z + 0.2, 0.0, new Color(0.11, 0.035, 0.14), new Color(1.0, 0.76, 0.36)],
+    ];
+    for (const [z, inset, col, rim] of sheets) {
+      const mat = new ShaderMaterial({
+        vertexShader: archVert,
+        fragmentShader: archFrag,
+        uniforms: {
+          uHalf: { value: new Vector2(archW / 2, archH / 2) },
+          uWin: { value: new Vector2(WALL_W / 2 + 0.16, WALL_H / 2 + 0.04 - (cy - WALL_CY)) },
+          uArch: { value: 0.32 },
+          uInset: { value: inset },
+          uColor: { value: col },
+          uRim: { value: rim },
+          uTime: { value: 0 },
+        },
+        side: DoubleSide,
+      });
+      this.timed.push(mat);
+      const sheet = new Mesh(new PlaneGeometry(archW, archH, 1, 1), mat);
+      sheet.position.set(0, cy, z);
+      this.root.add(sheet);
     }
-    const valance = curtain(3.3, 0.22, 14, velvet);
-    valance.position.set(0, top - 0.12, WALL_Z + 0.15);
-    this.root.add(valance);
-    // gold trim on the valance
-    const trim = new Mesh(new BoxGeometry(3.3, 0.02, 0.02), new MeshStandardMaterial({ color: new Color(0.7, 0.5, 0.18), metalness: 0.6, roughness: 0.35 }));
-    trim.position.set(0, top - 0.23, WALL_Z + 0.2);
-    this.root.add(trim);
 
-    // paper lanterns on a string in front of the stage
+    // paper lanterns on a string, in front of the arch
     const glow = glowTexture();
     const string = new BufferGeometry();
     const pts: number[] = [];
-    const ly = top + 0.38;
+    const ly = cy + archH / 2 + 0.05;
+    const lz = WALL_Z + 0.34;
     for (let i = 0; i <= 24; i++) {
       const x = -1.7 + (3.4 * i) / 24;
-      const sag = 0.14 * (1 - Math.pow(x / 1.7, 2));
-      pts.push(x, ly - sag, WALL_Z + 0.2);
+      const sag = 0.22 * (1 - Math.pow(x / 1.7, 2));
+      pts.push(x, ly - sag, lz);
     }
     string.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3));
     this.root.add(new Line(string, new LineBasicMaterial({ color: 0x2a1a0e })));
-    const colors = [new Color(1.0, 0.45, 0.12), new Color(1.0, 0.65, 0.2), new Color(0.95, 0.3, 0.18), new Color(1.0, 0.7, 0.3), new Color(1.0, 0.5, 0.15)];
+    const colors = [new Color(1.0, 0.45, 0.6), new Color(1.0, 0.7, 0.3), new Color(0.45, 0.95, 0.85), new Color(1.0, 0.72, 0.3), new Color(0.95, 0.45, 0.75)];
     for (let i = 0; i < 5; i++) {
       const x = -1.3 + i * 0.65;
-      const sag = 0.14 * (1 - Math.pow(x / 1.7, 2));
-      const body = new Mesh(new SphereGeometry(0.05, 14, 10), new MeshBasicMaterial({ color: colors[i].clone().multiplyScalar(0.85), toneMapped: false }));
+      const sag = 0.22 * (1 - Math.pow(x / 1.7, 2));
+      const body = new Mesh(new SphereGeometry(0.05, 14, 10), new MeshBasicMaterial({ color: colors[i].clone().multiplyScalar(0.9), toneMapped: false }));
       body.scale.y = 1.25;
-      body.position.set(x, ly - sag - 0.08, WALL_Z + 0.2);
+      body.position.set(x, ly - sag - 0.08, lz);
       const cord = new Mesh(new CylinderGeometry(0.0025, 0.0025, 0.06, 4), new MeshBasicMaterial({ color: 0x140c06 }));
-      cord.position.set(x, ly - sag - 0.03, WALL_Z + 0.2);
+      cord.position.set(x, ly - sag - 0.03, lz);
       const halo = new Sprite(new SpriteMaterial({ map: glow, color: colors[i], blending: AdditiveBlending, transparent: true, depthWrite: false }));
-      halo.scale.set(0.38, 0.38, 1);
+      halo.scale.set(0.42, 0.42, 1);
       halo.position.copy(body.position);
       this.root.add(body, cord, halo);
       this.lanterns.push({ m: body, s: halo, phase: rnd() * 6 });
     }
-    const lanternLight = new PointLight(new Color(1.0, 0.6, 0.3), 0.45, 3.5, 1.6);
-    lanternLight.position.set(0, ly - 0.2, WALL_Z + 0.2);
+    const lanternLight = new PointLight(new Color(1.0, 0.6, 0.45), 0.5, 3.5, 1.6);
+    lanternLight.position.set(0, ly - 0.2, lz);
     this.root.add(lanternLight);
 
-    // fireflies drifting all around the player
-    const F = 90;
+    // motes of light drifting up all around: gold, and a few teal
+    const F = 140;
     const fp = new Float32Array(F * 3);
     const ph = new Float32Array(F);
     for (let i = 0; i < F; i++) {
       const a = rnd() * Math.PI * 2;
-      const r = 1.6 + rnd() * 7;
+      const r = 1.4 + rnd() * 6;
       fp[i * 3] = Math.sin(a) * r;
-      fp[i * 3 + 1] = FLOOR_Y + 0.3 + rnd() * 2.6;
+      fp[i * 3 + 1] = FLOOR_Y + 0.2 + rnd() * 2.8;
       fp[i * 3 + 2] = Math.cos(a) * r;
       ph[i] = rnd();
     }
     const fg = new BufferGeometry();
     fg.setAttribute('position', new BufferAttribute(fp, 3));
     fg.setAttribute('aPhase', new BufferAttribute(ph, 1));
-    const flyMat = new ShaderMaterial({
-      vertexShader: flyVert,
-      fragmentShader: flyFrag,
-      uniforms: { uTime: { value: 0 } },
-      transparent: true,
-      depthWrite: false,
-      blending: AdditiveBlending,
-    });
-    this.timed.push(flyMat);
-    const flies = new Points(fg, flyMat);
-    flies.frustumCulled = false;
-    this.root.add(flies);
+    const moteMat = new ShaderMaterial({ vertexShader: moteVert, fragmentShader: moteFrag, uniforms: { uTime: { value: 0 } }, transparent: true, depthWrite: false, blending: AdditiveBlending });
+    this.timed.push(moteMat);
+    const motes = new Points(fg, moteMat);
+    motes.frustumCulled = false;
+    this.root.add(motes);
   }
 
   update(time: number) {
