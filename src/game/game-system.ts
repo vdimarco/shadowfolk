@@ -9,6 +9,7 @@ import {
   GRID_W,
   gridToWall,
   Matcher,
+  MAX_TILT,
   projectHand,
   projectPoint,
   rasterize,
@@ -377,8 +378,18 @@ export class GameSystem extends createSystem({}) {
     }
     rasterize(this.targetSegs, this.tmask);
     this.matcher.setTarget(this.tmask);
+    // show the outline at an angle a seated arm can reach; matching allows the tilt
+    const show = this.level.show ?? 0;
+    if (show) {
+      const [cx, cy] = gridToWall(this.matcher.targetStats.cx, this.matcher.targetStats.cy);
+      rotateSegs(this.targetSegs, cx, cy, show);
+      if (this.eyeBase) rotate2(this.eyeBase, cx, cy, show);
+    }
+    this.guideTilt = show;
     this.theater.wallMat.uniforms.uTargetAlpha.value = 0;
   }
+  /** Current turn of the guide hand (degrees), following the player's forearm. */
+  private guideTilt = 0;
 
   // ---------------------------------------------------------------- input
 
@@ -997,8 +1008,41 @@ export class GameSystem extends createSystem({}) {
         this.guideSide[n] = side;
         n++;
       }
-      // follow the player's hands: move the guide so its wrists sit on the
-      // real wrists, so only the pose and the turn of the hand are left to match
+      // turn the guide to the angle of the player's own hand (inside the
+      // tilt the matcher allows), so it never asks for a sideways wrist bend
+      let want = this.level.show ?? 0, dsum = 0, dn = 0;
+      for (let k = 0; k < n; k++) {
+        const side = this.guideSide[k]!;
+        if (!this.present[side]) continue;
+        const g = this.guideHands[k]!;
+        const real = this.joints[side];
+        const ar = Math.atan2(real[34] - real[1], real[33] - real[0]);
+        const ag = Math.atan2(g[34] - g[1], g[33] - g[0]);
+        let d = ((ar - ag) * 180) / Math.PI;
+        d = ((((d + 180) % 360) + 360) % 360) - 180;
+        dsum += d;
+        dn++;
+      }
+      if (dn) want = Math.max(-MAX_TILT, Math.min(MAX_TILT, dsum / dn));
+      this.guideTilt += (want - this.guideTilt) * Math.min(1, dt * 5);
+      const r = (this.guideTilt * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
+      let px = 0, py = 0;
+      for (let k = 0; k < n; k++) {
+        px += this.guideHands[k]![0] / n;
+        py += this.guideHands[k]![1] / n;
+      }
+      for (let k = 0; k < n; k++) {
+        const g = this.guideHands[k]!;
+        const out = this.guideBuf[k];
+        for (let i = 0; i < JOINT_COUNT; i++) {
+          const x = g[i * 3] - px, y = g[i * 3 + 1] - py;
+          out[i * 3] = px + c * x - sn * y;
+          out[i * 3 + 1] = py + sn * x + c * y;
+          out[i * 3 + 2] = g[i * 3 + 2];
+        }
+        this.guideHands[k] = out;
+      }
+      // then move the guide so its wrists sit on the real wrists
       let ox = 0, oy = 0, oz = 0, m = 0;
       for (let k = 0; k < n; k++) {
         const side = this.guideSide[k]!;
@@ -1014,14 +1058,12 @@ export class GameSystem extends createSystem({}) {
         ox /= m; oy /= m; oz /= m;
       }
       for (let k = 0; k < n; k++) {
-        const g = this.guideHands[k]!;
-        const out = this.guideBuf[k];
+        const out = this.guideHands[k]!;
         for (let i = 0; i < JOINT_COUNT; i++) {
-          out[i * 3] = g[i * 3] + ox;
-          out[i * 3 + 1] = g[i * 3 + 1] + oy;
-          out[i * 3 + 2] = g[i * 3 + 2] + oz;
+          out[i * 3] += ox;
+          out[i * 3 + 1] += oy;
+          out[i * 3 + 2] += oz;
         }
-        this.guideHands[k] = out;
       }
     }
     const opacity = 0.55 * this.guideAlpha;
@@ -1362,4 +1404,26 @@ function animateCreature(
 function mirrorPose(h: HandPose): HandPose {
   const r = h.rot ?? [0, 0, 0];
   return { ...h, hand: h.hand === 'right' ? 'left' : 'right', pos: [-h.pos[0], h.pos[1], h.pos[2]], rot: [r[0], -r[1], -r[2]] };
+}
+
+/** Turn a point about (cx, cy) by deg, in place. */
+function rotate2(p: [number, number], cx: number, cy: number, deg: number) {
+  const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const x = p[0] - cx, y = p[1] - cy;
+  p[0] = cx + c * x - s * y;
+  p[1] = cy + s * x + c * y;
+}
+
+/** Turn every capsule of a SegmentBuffer about (cx, cy) on the wall, in place. */
+function rotateSegs(buf: SegmentBuffer, cx: number, cy: number, deg: number) {
+  const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const d = buf.data;
+  for (let o = 0; o < d.length; o += 8) {
+    if (d[o + 2] <= 0) continue;
+    for (const e of [0, 4]) {
+      const x = d[o + e] - cx, y = d[o + e + 1] - cy;
+      d[o + e] = cx + c * x - s * y;
+      d[o + e + 1] = cy + s * x + c * y;
+    }
+  }
 }

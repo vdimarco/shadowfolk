@@ -13,6 +13,12 @@ export interface Level {
   hands: HandPose[];
   /** Score needed in normal mode. Gentle mode subtracts 0.1. */
   threshold: number;
+  /**
+   * Turn (degrees, counterclockwise on the paper) for showing the outline and
+   * the guide at a comfortable angle for a seated arm. Matching allows up to
+   * MAX_TILT either way from the stored pose, so this must stay inside it.
+   */
+  show?: number;
   /** Where the creature's eye opens when it wakes: a joint of hands[hand], plus a wall offset in meters. */
   eye?: { hand?: number; joint: number; dx?: number; dy?: number };
 }
@@ -44,20 +50,22 @@ export const LEVELS: Level[] = [
   {
     id: 'crocodile',
     name: 'The Crocodile',
-    hint: 'Point your fingers to the side, together. Your thumb underneath is the jaw.',
+    hint: 'Fingers together, pointing up and over. Your thumb underneath is the jaw.',
     wake: 'Snap! The crocodile slides off down the river.',
     motion: 'snap',
     threshold: 0.68,
+    show: -45,
     eye: { joint: 6, dx: 0.045, dy: 0.055 },
     hands: [R({ pos: [0.12, -0.24, -0.42], rot: [0, 0, 90], thumb: { out: 0.4, opp: 0, curl: 0 }, index: { splay: 0 }, middle: { splay: 0 }, ring: { splay: 0 }, pinky: { splay: 0 } })],
   },
   {
     id: 'dog',
     name: 'The Dog',
-    hint: 'Point your fingers to the side, thumb up for an ear. Drop your little finger to open the mouth.',
+    hint: 'Fingers together, thumb up for an ear. Drop your little finger to open the mouth.',
     wake: 'Woof! The dog wags and trots off to find a stick.',
     motion: 'bark',
     threshold: 0.64,
+    show: 45,
     eye: { joint: 6, dx: -0.015, dy: 0.012 },
     hands: [R({ pos: [0.0, -0.24, -0.42], rot: [0, 0, -90], thumb: { out: 0.85, opp: 0, curl: 0 }, index: { splay: 2 }, middle: { splay: 0 }, ring: { splay: -3 }, pinky: { splay: -28, mcp: 10 } })],
   },

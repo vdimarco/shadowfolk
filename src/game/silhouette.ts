@@ -267,18 +267,45 @@ function iou(a: Uint8Array, b: Uint8Array): number {
   return u ? i / u : 0;
 }
 
+/** How far a shape may be turned on the paper and still match (degrees each way). */
+export const MAX_TILT = 50;
+const COARSE = 12.5;
+const FINE = 6.25;
+const TILTS: number[] = [];
+for (let a = -MAX_TILT; a <= MAX_TILT + 1e-6; a += FINE) TILTS.push(a);
+
+/** Turn a canonical mask about its center (nearest neighbour). */
+function rotateCanonical(src: Uint8Array, deg: number, out: Uint8Array) {
+  const r = (deg * Math.PI) / 180;
+  const c = Math.cos(r), s = Math.sin(r);
+  const h = CAN / 2 - 0.5;
+  for (let y = 0; y < CAN; y++)
+    for (let x = 0; x < CAN; x++) {
+      // inverse map: where does this output cell come from?
+      const dx = x - h, dy = y - h;
+      const sx = Math.round(h + c * dx + s * dy);
+      const sy = Math.round(h - s * dx + c * dy);
+      out[y * CAN + x] = sx >= 0 && sy >= 0 && sx < CAN && sy < CAN ? src[sy * CAN + sx] : 0;
+    }
+}
+
 /**
- * Shape matcher. Free in position and size, optionally free in mirror,
- * strict in orientation. Returns 0..1.
+ * Shape matcher. Free in position and size, optionally free in mirror, and
+ * tolerant of tilt up to MAX_TILT, so a player can make a shape at whatever
+ * angle their forearm sits. Returns 0..1.
  */
 export class Matcher {
-  private target = new Uint8Array(CAN * CAN);
+  /** The target turned by each angle in TILTS. */
+  private targets: Uint8Array[] = TILTS.map(() => new Uint8Array(CAN * CAN));
+  private base = new Uint8Array(CAN * CAN);
   private targetArea = 0;
   /** Stats of the target and of the last scored mask (grid units). */
   targetStats: ShapeStats = { area: 0, cx: 0, cy: 0 };
   lastStats: ShapeStats = { area: 0, cx: 0, cy: 0 };
   /** True when the last best score came from the mirrored shape. */
   lastMirrored = false;
+  /** Tilt of the player's shape against the target in the last best score (degrees). */
+  lastTilt = 0;
   private a = new Uint8Array(CAN * CAN);
   private b = new Uint8Array(CAN * CAN);
 
@@ -286,28 +313,55 @@ export class Matcher {
     const st = shapeStats(mask);
     this.targetArea = st.area;
     this.targetStats = st;
-    canonicalize(mask, st, this.target);
+    canonicalize(mask, st, this.base);
+    TILTS.forEach((t, i) => rotateCanonical(this.base, t, this.targets[i]));
   }
 
   score(mask: Uint8Array, allowMirror: boolean): number {
     return this.scoreWithStats(mask, shapeStats(mask), allowMirror);
   }
 
+  /** Best IoU over tilts: a coarse pass, then the neighbours of the best. */
+  private bestTilt(live: Uint8Array): [number, number] {
+    const step = Math.round(COARSE / FINE);
+    const mid = (TILTS.length - 1) / 2;
+    let best = 0, bi = mid;
+    for (let i = mid % step; i < TILTS.length; i += step) {
+      const v = iou(live, this.targets[i]);
+      if (v > best) {
+        best = v;
+        bi = i;
+      }
+    }
+    for (const j of [bi - 1, bi + 1]) {
+      if (j < 0 || j >= TILTS.length) continue;
+      const v = iou(live, this.targets[j]);
+      if (v > best) {
+        best = v;
+        bi = j;
+      }
+    }
+    return [best, TILTS[bi]];
+  }
+
   /** Same as score(), with the mask's stats computed once by the caller. */
   scoreWithStats(mask: Uint8Array, st: ShapeStats, allowMirror: boolean): number {
     this.lastStats = st;
     this.lastMirrored = false;
+    this.lastTilt = 0;
     if (st.area < 8 || this.targetArea < 8) return 0;
     canonicalize(mask, st, this.a, false);
-    let s = iou(this.a, this.target);
+    let [s, t] = this.bestTilt(this.a);
     if (allowMirror) {
       canonicalize(mask, st, this.b, true);
-      const m = iou(this.b, this.target);
+      const [m, mt] = this.bestTilt(this.b);
       if (m > s) {
         s = m;
+        t = mt;
         this.lastMirrored = true;
       }
     }
+    this.lastTilt = t;
     return s;
   }
 }
