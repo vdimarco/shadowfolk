@@ -116,6 +116,20 @@ if (want('magic')) {
   await page.close();
 }
 
+// the 3D step-out: the creature lifts off the paper toward the player
+if (want('step')) {
+  for (const [lv, id] of [[6, 'fox'], [4, 'bird'], [5, 'deer']] as [number, string][]) {
+    const page = await open({ level: lv, found: ids.slice(0, lv), puzzle: 0, battle: false });
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 40);
+    const poses = level(id).hands;
+    await until(page, (s) => s.state === 'wake', 300, () => poses);
+    await adv(page, 30 * 2.3, () => null);
+    await shot(page, `shot-8-step-${id}`);
+    await page.close();
+  }
+}
+
 // the Shadow Book with every creature found
 if (want('book')) {
   const page = await open({ level: 10, found: ids, puzzle: 2, battle: true });

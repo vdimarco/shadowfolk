@@ -28,6 +28,7 @@ import { NightWorld } from './world.js';
 import { BattleScene } from './battle-scene.js';
 import { JointFilter } from './smooth.js';
 import { ART, ArtSprite, CreatureArt } from './creature-art.js';
+import { Creature3D } from './creature3d.js';
 
 type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle';
 
@@ -148,6 +149,9 @@ export class GameSystem extends createSystem({}) {
   /** The illustrated creature that appears when a shadow wakes. */
   private wakeSprite = new ArtSprite(6);
   private wakeArt = false;
+  /** The 3D figure that steps out of the paper when a shadow wakes. */
+  private creature3d = new Creature3D();
+  private wake3d = false;
   private motion = { ox: 0, oy: 0, sx: 1, sy: 1, rot: 0 };
 
   private live = new SegmentBuffer();
@@ -189,7 +193,7 @@ export class GameSystem extends createSystem({}) {
     this.world.createTransformEntity(this.theater.root, { persistent: true });
     this.theater.root.add(this.handViz.root, this.guide.root, this.guideSkin.root);
     CreatureArt.load();
-    this.theater.root.add(this.wakeSprite.mesh);
+    this.theater.root.add(this.wakeSprite.mesh, this.creature3d.root);
     this.battleScene = new BattleScene(this.theater, this.sfx);
     this.nightWorld = new NightWorld();
     this.theater.root.add(this.nightWorld.root);
@@ -230,6 +234,8 @@ export class GameSystem extends createSystem({}) {
     if (s !== 'wake') {
       this.wakeSprite.set(0);
       this.wakeSprite.hide();
+      this.creature3d.end();
+      this.wake3d = false;
     }
     this.state = s;
     this.stateTime = 0;
@@ -259,6 +265,9 @@ export class GameSystem extends createSystem({}) {
         u.uMeter.value = 0;
         u.uFlash.value.y = 0.7; // a soft golden flash as the shadow comes alive
         this.wakeArt = this.wakeSprite.show(this.level.id);
+        this.wake3d =
+          this.wakeArt &&
+          this.creature3d.begin(this.level.id, this.wakeCenter[0] + this.wakeFrom.x, this.wakeCenter[1] + this.wakeFrom.y);
         this.sfx.chime();
         this.sfx.setCloseness(0, 1);
         this.ink([this.level.name], wrap(this.level.wake, 52), '');
@@ -398,6 +407,7 @@ export class GameSystem extends createSystem({}) {
       if (this.eyeBase) rotate2(this.eyeBase, cx, cy, show);
     }
     this.guideTilt = show;
+    this.creature3d.preload(this.level.id);
     this.theater.wallMat.uniforms.uTargetAlpha.value = 0;
   }
   /** Current turn of the guide hand (degrees), following the player's forearm. */
@@ -741,8 +751,12 @@ export class GameSystem extends createSystem({}) {
             h, m.rot, m.sx, m.sy, this.wakeFrom.mirror,
           );
           const reveal = Math.min(1, Math.max(0, (t - 0.15) / 0.9));
-          const fade = k < 0.82 ? 1 : Math.max(0, 1 - (k - 0.82) / 0.18);
+          // with a 3D figure, the illustration lifts off the paper into it
+          const fade = this.wake3d
+            ? Math.max(0, 1 - Math.max(0, t - 1.1) / 0.6)
+            : k < 0.82 ? 1 : Math.max(0, 1 - (k - 0.82) / 0.18);
           this.wakeSprite.set(fade, reveal, time);
+          if (this.wake3d) this.creature3d.update(t, WAKE_TIME + 0.4, time);
         } else if (eyeOut) {
           // the eye opens after the creature starts to move, and blinks twice
           const open = Math.min(1, Math.max(0, (t - 0.35) / 0.4));
@@ -942,6 +956,7 @@ export class GameSystem extends createSystem({}) {
     if (found.has(today.id)) levels.push(today);
     const buf = new SegmentBuffer();
     const m = new Uint8Array(GRID_W * GRID_H);
+    for (const l of levels) this.creature3d.preload(l.id);
     this.freeCands = levels.map((level) => {
       buf.clear();
       level.hands.forEach((h, k) => projectHand(poseToJoints(h), buf, k * SEGS_PER_HAND));
