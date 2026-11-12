@@ -51,8 +51,8 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // unused slot: off screen
     return;
   }
-  float ea = iA.z + iA.w * 1.2;
-  float eb = iB.z + iB.w * 1.2;
+  float ea = iA.z + abs(iA.w) * 1.2;
+  float eb = iB.z + abs(iB.w) * 1.2;
   vec2 lo = min(iA.xy - ea, iB.xy - eb);
   vec2 hi = max(iA.xy + ea, iB.xy + eb);
   vP = mix(lo, hi, position.xy * 0.5 + 0.5);
@@ -61,6 +61,7 @@ void main() {
 
 const segFrag = /* glsl */ `
 precision highp float;
+uniform float uFadeArm;   // 1: the forearm fades into a short stem at the wrist
 varying vec2 vP;
 varying vec4 vA;
 varying vec4 vB;
@@ -69,9 +70,12 @@ void main() {
   vec2 ba = vB.xy - vA.xy;
   float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
   float r = mix(vA.z, vB.z, h);
-  float s = mix(vA.w, vB.w, h);
+  // the forearm (negative penumbra on its elbow end) tapers to a point, like a stem
+  if (vA.w < 0.0) r *= mix(1.0, smoothstep(0.62, 1.0, h), uFadeArm);
+  float s = mix(abs(vA.w), abs(vB.w), h);
   float d = length(pa - ba * h) - r;
-  float light = smoothstep(-s, s, d);
+  float cover = 1.0 - smoothstep(-s, s, d);
+  float light = 1.0 - cover;
   gl_FragColor = vec4(light, light, light, 1.0);
 }`;
 
@@ -155,7 +159,7 @@ export class ShadowPass {
   private clear = new Color();
   private readonly n: number;
   /** The shadow with its capsules joined into one smooth shape (half size). */
-  private smooth = new Blur(RT_W / 2, RT_H / 2, 1.0);
+  private smooth = new Blur(RT_W / 2, RT_H / 2, 1.7);
   /** A wide blur of the shadow, for the magic glow around it (quarter size). */
   private wide = new Blur(RT_W / 4, RT_H / 4, 1.6);
   get soft() {
@@ -185,7 +189,7 @@ export class ShadowPass {
     const mat = new ShaderMaterial({
       vertexShader: segVert,
       fragmentShader: segFrag,
-      uniforms: { uWall: { value: new Vector2(WALL_W, WALL_H) } },
+      uniforms: { uWall: { value: new Vector2(WALL_W, WALL_H) }, uFadeArm: { value: 1 } },
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -194,9 +198,16 @@ export class ShadowPass {
       blendSrc: ZeroFactor,
       blendDst: SrcColorFactor,
     });
+    this.segMat = mat;
     const mesh = new Mesh(geo, mat);
     mesh.frustumCulled = false;
     this.scene.add(mesh);
+  }
+  private segMat: ShaderMaterial;
+
+  /** 1 fades the forearm into a stem (normal play); 0 keeps the whole arm (puzzles, where it is the slide). */
+  setFadeArm(v: number) {
+    this.segMat.uniforms.uFadeArm.value = v;
   }
 
   setSize(w: number, h: number) {
@@ -305,22 +316,47 @@ void main() {
   vec4 ink = texture2D(uInk, vUv);
   col = mix(col, mix(vec3(0.2, 0.09, 0.26), vec3(0.05), uContrast) * lit, ink.a * 0.92);
 
-  // smooth shadows: the capsules are blurred together, then given a clean, soft edge
+  // shadows are cut-outs of the night: the capsules are blurred into one
+  // flowing shape, then cut with a crisp edge, like a papercut
   float liveSoft = cov(uLiveSoft, vUv);
-  float live = smoothstep(0.28, 0.72, liveSoft) * uLiveAlpha;
+  float live = smoothstep(0.45, 0.55, liveSoft) * uLiveAlpha;
   float liveGlow = cov(uLiveGlow, vUv) * uLiveAlpha;
   float tSoft = cov(uTargetSoft, vUv);
-  float t0 = smoothstep(0.28, 0.72, tSoft);
+  float t0 = smoothstep(0.45, 0.55, tSoft);
   float tGlow = cov(uTargetGlow, vUv);
-  // the guide: a fine golden line along the smooth outline of the sleeping creature
-  float guide = exp(-pow((tSoft - 0.5) / 0.17, 2.0)) * (1.0 - uTargetMode) * uTargetAlpha;
-  float ghost = t0 * (1.0 - uTargetMode) * uTargetAlpha * 0.1;
+  // the guide: a fine golden line along the outline of the sleeping creature
+  float guide = exp(-pow((tSoft - 0.5) / 0.12, 2.0)) * (1.0 - uTargetMode) * uTargetAlpha;
+  float ghost = t0 * (1.0 - uTargetMode) * uTargetAlpha * 0.12;
   float creature = t0 * uTargetMode * uTargetAlpha;
+  vec3 gold = mix(vec3(1.0, 0.74, 0.32), vec3(0.95, 0.55, 0.0), uContrast);
 
-  vec3 shadowCol = mix(vec3(0.11, 0.07, 0.05), vec3(0.0), uContrast);
-  col = mix(col, shadowCol * lit * 2.0, ghost);
-  col = mix(col, shadowCol, max(live, creature) * 0.93);
-  vec3 gold = mix(vec3(1.0, 0.72, 0.3), vec3(0.95, 0.55, 0.0), uContrast);
+  // inside a shadow: deep indigo night with drifting haze and twinkling stars
+  vec2 sg = p * 48.0;
+  vec2 scell = floor(sg);
+  float sh = hash(scell + 3.0);
+  vec2 soff = vec2(hash(scell + 1.3), hash(scell + 5.9)) - 0.5;
+  float star = (1.0 - smoothstep(0.0, 0.1, length(fract(sg) - 0.5 - soff * 0.6))) * step(0.83, sh);
+  float twk = 0.45 + 0.55 * sin(uTime * (0.8 + sh * 3.0) + sh * 60.0);
+  float haze = noise(p * 5.0 + vec2(uTime * 0.04, -uTime * 0.02));
+  vec3 night = mix(vec3(0.045, 0.025, 0.11), vec3(0.13, 0.06, 0.24), haze);
+  vec3 nightLive = night + vec3(1.0, 0.9, 0.72) * star * twk * 0.8;
+  vec3 nightCreature = night * 1.3 + vec3(1.0, 0.92, 0.7) * star * (0.6 + 0.4 * twk) * 1.6;
+  // the wolf's cut-out is dark crimson and starless
+  float wolf = 1.0 - step(0.5, uTargetAura.g);
+  nightCreature = mix(nightCreature, vec3(0.05, 0.008, 0.03) + vec3(0.14, 0.01, 0.04) * haze, wolf);
+  vec3 flatCol = mix(vec3(0.11, 0.07, 0.05), vec3(0.0), uContrast);
+  nightLive = mix(nightLive, flatCol, uContrast);
+  nightCreature = mix(nightCreature, flatCol, uContrast);
+
+  col = mix(col, flatCol * lit * 2.0, ghost);
+  col = mix(col, nightCreature, creature);
+  col = mix(col, nightLive, live);
+  // a fine rim where the paper was cut: violet at rest, gold as the shape gets close
+  float liveRim = exp(-pow((liveSoft - 0.5) / 0.055, 2.0)) * uLiveAlpha;
+  vec3 rimCol = mix(vec3(0.55, 0.45, 0.95), gold * 1.2, clamp(uMagic * 1.3, 0.0, 1.0));
+  col = mix(col, rimCol, liveRim * (0.45 + 0.55 * uMagic) * (1.0 - uContrast));
+  float tRim = exp(-pow((tSoft - 0.5) / 0.055, 2.0)) * uTargetMode * uTargetAlpha;
+  col = mix(col, uTargetAura * 1.25, tRim * 0.9);
   float pulse = 0.75 + 0.25 * sin(uTime * 2.4);
   col = mix(col, gold * (1.1 + uHold), guide * pulse * (0.55 + 0.45 * (1.0 - live)));
 

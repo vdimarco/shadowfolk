@@ -74,7 +74,7 @@ async function until(page: any, pred: (s: any) => boolean, max = 600, poses?: (t
   return false;
 }
 async function shot(page: any, name: string, w = 2560, h = 1440) {
-  if (process.env.SMALL) { await page.screenshot({ path: `${outDir}/${name}-small.png` }); }
+  if (process.env.SMALL) { await page.screenshot({ path: `${outDir}/${name}-small.png`, timeout: 180000 }); }
   await page.setViewportSize({ width: w, height: h });
   for (let attempt = 0; attempt < 4; attempt++) {
     await page.waitForTimeout(1500);

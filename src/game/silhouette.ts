@@ -155,7 +155,8 @@ export function projectHand(
     ex /= el; ey /= el; ez /= el;
     const L = 0.24;
     const okA = project(wx + ex * L, wy + ey * L, wz + ez * L, 0.032, tmp);
-    d[fo] = tmp[0]; d[fo + 1] = tmp[1]; d[fo + 2] = tmp[2]; d[fo + 3] = tmp[3];
+    // a negative penumbra marks the forearm, so the shadow pass can fade it to a stem
+    d[fo] = tmp[0]; d[fo + 1] = tmp[1]; d[fo + 2] = tmp[2]; d[fo + 3] = -tmp[3];
     const okB = project(wx, wy, wz, 0.024, tmp);
     d[fo + 4] = tmp[0]; d[fo + 5] = tmp[1]; d[fo + 6] = tmp[2]; d[fo + 7] = tmp[3];
     if (!okA || !okB) d[fo + 2] = 0;

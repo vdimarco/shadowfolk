@@ -641,6 +641,8 @@ export class GameSystem extends createSystem({}) {
       else clearHand(this.live, slot);
     }
     const renderer = this.world.renderer as WebGLRenderer;
+    // in the puzzles the whole arm is the slide; elsewhere the arm fades to a stem
+    this.theater.live.setFadeArm(this.state === 'puzzle' ? 0 : 1);
     this.theater.live.render(renderer, this.live);
 
     const area = this.present.left || this.present.right ? rasterize(this.live, this.mask) : 0;
