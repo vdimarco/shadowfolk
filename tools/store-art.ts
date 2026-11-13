@@ -152,7 +152,7 @@ if (want('rain')) {
 // the shadow tools: each puzzle at a telling moment
 if (want('tools') || /shot-(9|1[0-2])|ghost-check/.test(only ?? '')) {
   const scenes: [string, number, (t: number) => HandPose[], number][] = [
-    ['shot-9-bowl', 1, bowlPose, 7.6],
+    ['shot-9-bowl', 1, bowlPose, 4.5],
     ['shot-10-pearls', 3, pearlsPose, 6],
     ['shot-11-ice', 4, icePose, 1.75],
     ['shot-12-garden', 5, gardenPose, 6.5],

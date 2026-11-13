@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { type FingerSpec, type HandPose, poseToJoints } from '../src/game/hand-model.js';
 import { dailyLevel, dayNumber } from '../src/game/daily.js';
 import { LEVELS } from '../src/game/levels.js';
-import { fliesPose, rainPose } from './puzzle-moves.js';
+import { bowlPose, gardenPose, handAt, icePose, pearlsPose, rainPose } from './puzzle-moves.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -407,12 +407,8 @@ try {
     hare: 'Every creature is a classic hand shadow.',
     crocodile: 'Make the shape anywhere on the paper, at any size or angle.',
     dog: 'Your shadow glows gold as you get close.',
-    bird: 'Some shadows need both hands.',
-    deer: 'Every target is a real hand pose.',
-    fox: 'Chapter two brings new shapes.',
-    butterfly: 'Chapter two: hook your thumbs, and a butterfly opens its wings.',
-    owl: 'Every creature steps out of the paper and into the room.',
-    spider: 'Ten story shadows teach the shapes.',
+    bird: 'Two hands make a bird, and it steps out of the paper into the room.',
+    deer: 'Six classic shadows: the shapes everyone already knows.',
   };
   const offsets: Record<string, { d: V3; r: V3 }> = {
     moth: { d: [0.03, 0.0, 0.0], r: [0, 0, 0] },
@@ -459,16 +455,58 @@ try {
     }
     return null;
   }
+  /** Wait out the puzzle's closing moment off camera, then pick up at the next one. */
+  async function cutTo(next: string) {
+    await hold(1.4);
+    recording = false;
+    await until((s) => s.state === 'puzzle' && s.level === next, 10);
+    recording = true;
+  }
+  const isDone = (id: string) => (s: { state: string; level: string }) => s.level !== `puzzle-${id}` || (s as any).puzzleDone;
+  const flat = { thumb: { out: 0.05, opp: 0 }, index: { splay: 2 }, middle: { splay: 0 }, ring: { splay: -2 }, pinky: { splay: -4 } };
+
   await until((s) => s.state === 'puzzle', 6);
-  say('Chapter three: your shadow is solid. Guide the rain into the cup.');
-  const rainEnd = await follow(rainPose, (s) => s.level !== 'puzzle-rain' || (s as any).puzzleDone, 40);
-  console.log('rain', JSON.stringify(rainEnd));
-  await move([REST.right], 1.0);
-  await until((s) => s.level === 'puzzle-fireflies', 8);
-  say('Fireflies flee from shadow. Herd them into the jar.');
-  const fliesEnd = await follow(fliesPose, (s) => s.level !== 'puzzle-fireflies' || (s as any).puzzleDone, 50);
-  console.log('fireflies', JSON.stringify(fliesEnd));
-  await move([REST.right], 1.0);
+  // the rain: a flat hand is a slide
+  say('Chapter three: your shadow is solid, and each hand shape is a tool.');
+  await hold(1.0);
+  say('A flat hand is a slide. Guide the rain into the cup.');
+  console.log('rain', JSON.stringify(await follow(rainPose, isDone('rain'), 40)));
+  await cutTo('puzzle-bowl');
+  // the bowl: first a flat hand, a ghost here; then a cupped hand
+  say('Each puzzle allows only some shapes. Any other shape is a ghost.');
+  const ghost = norm({ hand: 'right', pos: handAt(-0.36, -0.2), rot: [0, 0, 54], ...flat });
+  await move([ghost], 1.0);
+  await hold(2.2);
+  say('A cupped hand is a bowl. Catch the rain, carry it, and pour.');
+  console.log('bowl', JSON.stringify(await follow(bowlPose, isDone('bowl'), 40)));
+  await move([REST.right], 0.8);
+  // the fireflies: skipped off camera to keep the video short
+  recording = false;
+  await until((s) => s.level === 'puzzle-fireflies', 10);
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  await until((s) => s.level === 'puzzle-pearls', 10);
+  recording = true;
+  // the pearls: spread fingers are a sieve
+  say('Spread fingers are a sieve: rain falls through, and pearls roll to the shell.');
+  console.log('pearls', JSON.stringify(await follow(pearlsPose, isDone('pearls'), 40)));
+  await cutTo('puzzle-ice');
+  // the frozen cloud: a fist knocks the ice, then a flat hand is a slide
+  say('A fist is a stone. Knock the frozen cloud loose.');
+  await follow(icePose, (s) => (s as any).puzzleCount >= 0 && (s as any).puzzleCount < 64 ** 3, 6);
+  say('Then open your hand into a slide.');
+  await move([REST.left, norm(icePose(10)[0])], 1.0);
+  console.log('ice', JSON.stringify(await until(isDone('ice'), 30)));
+  await cutTo('puzzle-garden');
+  // the moon garden: every tool at once
+  say('The Moon Garden: a sieve over a slide sorts pearls from rain.');
+  await follow(gardenPose, (s) => (s as any).puzzleCount >= 0 && (s as any).puzzleCount < 64 ** 3, 6);
+  await move(gardenPose(10).map(norm), 1.0);
+  console.log('garden', JSON.stringify(await until(isDone('garden'), 30)));
+  await hold(1.6);
+  await move([REST.right, REST.left], 1.0);
+  recording = false;
+  await until((s) => s.state !== 'puzzle', 10);
+  recording = true;
   if (ONLY_PUZZLES) throw new Error('skip-story');
 
   // C3. chapter four: the Ink Wolf, a spell battle

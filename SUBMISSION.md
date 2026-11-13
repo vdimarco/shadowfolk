@@ -171,7 +171,7 @@ webxr, immersive-web-sdk, three.js, typescript, vite, hand-tracking, meta-quest,
 
 ## Image gallery
 
-Use the images in `submission/`: `thumbnail.jpg` (3:2) as the project thumbnail, then `gallery-1.jpg` to `gallery-6.jpg` in order.
+Use the images in `submission/`: `thumbnail.jpg` (3:2) as the project thumbnail, then `gallery-1.jpg` to `gallery-8.jpg` in order.
 
 ## YouTube upload text
 
