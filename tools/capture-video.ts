@@ -324,7 +324,6 @@ async function playChase() {
   // [stage, first obstacle (-1: the stage's opening), last obstacle] to keep on camera
   const windows: [number, number, number][] = [
     [0, -1, 3],
-    [1, 1, 3],
     [3, -1, 2],
     [4, 6, 99],
   ];
@@ -333,7 +332,6 @@ async function playChase() {
     '0:0': 'Make the shape before the obstacle hits.',
     '0:2': 'Too slow, and the wolf gains on you.',
     '0:3': 'The guide shows each shape. Every creature helps.',
-    '1:1': 'Faster now. A fist smashes a boulder.',
     '3:-1': 'The storm. The paper goes dark, and the obstacles come faster.',
     '4:6': 'The last run: everything at once.',
   };
@@ -522,7 +520,7 @@ try {
   }
 
   /** Played off camera to keep the video under three minutes. */
-  const offCamera = new Set(['hare', 'deer']);
+  const offCamera = new Set(['hare', 'crocodile', 'deer']);
   if (!ONLY_PUZZLES) {
     for (const lv of LEVELS) {
       recording = !offCamera.has(lv.id);
@@ -581,22 +579,88 @@ try {
   // the pearls and the frozen cloud: off camera, to keep the video under three minutes
   await skip('pearls', 'puzzle-ice');
   await skip('ice', 'puzzle-garden');
-  // the moon garden: every tool at once
-  say('The Moon Garden: a sieve over a slide sorts pearls from rain.');
-  await follow(gardenPose, (s) => (s as any).puzzleCount >= 0 && (s as any).puzzleCount < 64 ** 3, 6);
-  await move(gardenPose(10).map(norm), 1.0);
-  console.log('garden', JSON.stringify(await until(isDone('garden'), 30)));
-  await hold(1.6);
-  await move([REST.right, REST.left], 1.0);
+  // the moon garden: off camera too
   recording = false;
+  await until((s) => s.level === 'puzzle-garden', 10);
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await until((s) => s.state !== 'puzzle', 10);
   recording = true;
   if (ONLY_PUZZLES) throw new Error('skip-story');
   await until((s) => s.state === 'level', 10);
 
-  // C. daily shadow
+  // C. daily shadow, off camera
   const daily = dailyLevel(dayNumber());
-  await playLevel(daily.id, daily.hands, 'Then a new shadow wakes every day. Keep your streak.');
+  recording = false;
+  await playLevel(daily.id, daily.hands, '');
+  recording = true;
+
+  // G. the play menu (lessons from Nex Playground): a held shape picks a mode
+  await until((s) => s.state === 'finale', 15);
+  say('After the story, make a shape to choose how to play.');
+  await hold(2.4);
+  const pose = (id: string) => (id === 'stone' ? [FIST_POSE] : LEVELS.find((l) => l.id === id)!.hands).map((p) => shift(norm(p), [-0.02, 0.02, 0]));
+  // Shadow Mirror: no rules; the twin copies you a beat late; a fist changes the magic
+  await move(pose('moth'), 1.0);
+  await until((s) => s.state === 'mirror', 6);
+  say('Shadow Mirror: no rules. A twin copies you a beat late, and your hands make music.');
+  const star = pose('moth')[0];
+  for (let i = 0; i < 4.5 * FPS; i++) {
+    const t = i / FPS;
+    hands = [shift(star, [0.09 * Math.sin(t * 2.2), 0.07 * Math.sin(t * 3.1), 0], [0, 0, 18 * Math.sin(t * 2.2)])];
+    await step();
+  }
+  say('Make a fist, and the magic changes.');
+  await move([norm(FIST_POSE)], 0.5);
+  await hold(0.6);
+  const bird = pose('bird');
+  await move(bird, 0.8);
+  for (let i = 0; i < 3.0 * FPS; i++) {
+    const t = i / FPS;
+    hands = bird.map((h) => shift(h, [0.1 * Math.sin(t * 2.6), 0.05 * Math.sin(t * 5.2), 0], [0, 0, 10 * Math.sin(t * 2.6)]));
+    await step();
+  }
+  await move([REST.right], 0.6);
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  await until((s) => s.state === 'finale', 6);
+  // Quick Chase: one minute for a high score
+  await hold(0.6);
+  await move(pose('dog'), 1.0);
+  await until((s) => s.state === 'chase', 6);
+  await move([REST.right], 0.5);
+  say('Quick Chase: one minute, faster and faster, for a high score.');
+  let spawnF = -1, prevWanted: string | null = null;
+  for (let i = 0; i < 12 * FPS; i++) {
+    const c = lastInfo.chase;
+    if (c?.wanted && !prevWanted) spawnF = i;
+    prevWanted = c?.wanted ?? null;
+    const target = c?.wanted && (i - spawnF) / FPS > 0.6 ? pose(c.wanted) : [REST.right];
+    hands = target.map((b, idx) => lerpPose(hands.find((f) => f.hand === b.hand) ?? hands[idx] ?? REST[b.hand], b, 0.22));
+    await step();
+  }
+  await move([REST.right], 0.4);
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  await until((s) => s.state === 'finale', 6);
+  say('Your best score waits on the menu.');
+  await hold(1.8);
+  // Party: pass the headset
+  await move(pose('bird'), 1.0);
+  await until((s) => s.state === 'party', 6);
+  await move([REST.right], 0.5);
+  say('Party: up to four players pass the headset. The best runner wins.');
+  await hold(2.6);
+  recording = false;
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  await until((s) => s.state === 'chase', 6);
+  await hold(1.0);
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  await until((s) => s.state === 'party', 6);
+  await page.evaluate(() => {
+    const sf = (window as any).__shadowfolk;
+    sf.press('book');
+    sf.press('next');
+  });
+  await until((s) => s.state === 'finale', 6);
+  recording = true;
 
 } catch (e) {
   if ((e as Error).message !== 'skip-story' && (e as Error).message !== 'battle only') {
@@ -629,23 +693,12 @@ try {
   await move([REST.right], 0.8, (k) => (pitch = -38 * (1 - ease(k))));
   say('The Shadow Book keeps every creature you wake.');
   await hold(3.0);
-  // turn gentle mode back off without showing it, close the book, open free play
+  // turn gentle mode back off without showing it, and close the book
   await page.evaluate(() => {
     const sf = (window as any).__shadowfolk;
     sf.press('gentle');
     sf.press('book');
-    sf.press('next');
   });
-
-  // F. free play: any shadow from the book wakes its creature
-  say('Free play: make any shadow you know, anywhere.');
-  const dog = LEVELS.find((l) => l.id === 'dog')!.hands.map(norm);
-  await move([shift(dog[0], [0.1, 0.05, 0.03], [0, 0, 25])], 1.6);
-  await move([shift(dog[0], [0.1, 0.05, 0.03])], 1.0);
-  await until((s) => s.state === 'wake', 6);
-  await hold(0.6);
-  await move([REST.right], 1.3);
-  await until((s) => s.state === 'free', 6);
 
   // E. end card
   say('');

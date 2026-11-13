@@ -15,7 +15,7 @@ import { type Tool, ToolTracker } from './tools.js';
 
 export type MirrorMagic = 'twin' | 'echo' | 'giant';
 const MAGICS: { id: MirrorMagic; name: string; line: string; aura: [number, number, number] }[] = [
-  { id: 'twin', name: 'The Twin', line: 'Your shadow twin copies you, a beat late. Can you dance together?', aura: [0.55, 0.45, 1.0] },
+  { id: 'twin', name: 'The Twin', line: 'Your shadow twin copies you, a beat late. Can you dance together?', aura: [0.6, 0.55, 1.0] },
   { id: 'echo', name: 'Echoes', line: 'Every move leaves echoes in the night. Swoop and swirl!', aura: [0.35, 0.8, 1.0] },
   { id: 'giant', name: 'The Giant', line: 'A giant shadow rises behind you. Wave hello!', aura: [1.0, 0.6, 0.3] },
 ];
@@ -140,8 +140,13 @@ export class MirrorScene {
     this.out.data.fill(0);
     const m = MAGICS[this.magic];
     if (m.id === 'twin') {
+      // mirrored about a line a little to one side, so the twin stands beside you, facing you
       const a = this.ago(0.45);
-      if (a) this.place(a, 0, 0, true, 1);
+      if (a) {
+        const cx = centerX(a);
+        const line = cx + (cx > 0 ? -0.24 : 0.24);
+        this.place(a, 0, 2 * line, true, 1);
+      }
     } else if (m.id === 'echo') {
       const a = this.ago(0.18);
       const b = this.ago(0.4);
@@ -225,4 +230,16 @@ export class MirrorScene {
     g.globalAlpha = 1;
     this.theater.inkTex.needsUpdate = true;
   }
+}
+
+/** The middle of a shadow along x (wall meters), from its capsules' end points. */
+function centerX(d: Float32Array): number {
+  let sx = 0, n = 0;
+  for (let i = 0; i < d.length / 8; i++) {
+    const o = i * 8;
+    if (d[o + 2] <= 0) continue;
+    sx += d[o] + d[o + 4];
+    n += 2;
+  }
+  return n ? sx / n : 0;
 }

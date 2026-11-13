@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { HandPose } from '../src/game/hand-model.js';
 import { ALL_LEVELS, LEVELS } from '../src/game/levels.js';
+import { dayNumber } from '../src/game/daily.js';
 import { bowlPose, fliesPose, gardenPose, icePose, pearlsPose, rainPose } from './puzzle-moves.js';
 
 const require = createRequire(import.meta.url);
@@ -24,7 +25,7 @@ const ids = LEVELS.map((l) => l.id);
 const level = (id: string) => ALL_LEVELS.find((l) => l.id === id)!;
 const shift = (hs: HandPose[], d: [number, number, number]) => hs.map((h) => ({ ...h, pos: [h.pos[0] + d[0], h.pos[1] + d[1], h.pos[2] + d[2]] as [number, number, number] }));
 
-type Progress = { level: number; found: string[]; puzzle: number; battle: boolean; chase?: boolean };
+type Progress = { level: number; found: string[]; puzzle: number; battle: boolean; chase?: boolean; dailyDay?: number; quickBest?: number };
 async function open(p: Progress) {
   const page = await browser.newPage({ ignoreHTTPSErrors: true, viewport: { width: 960, height: 540 } });
   await page.addInitScript((prog: Progress) => {
@@ -185,6 +186,53 @@ if (want('chase') || /shot-1[3-5]/.test(only ?? '')) {
     }
   }
   await page.close();
+}
+
+// after the story: the play menu, Shadow Mirror and Quick Chase
+if (want('modes') || /shot-1[6-8]/.test(only ?? '')) {
+  const fist: HandPose[] = [{ hand: 'right', pos: [0.06, -0.22, -0.42], thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } }];
+  const posesFor = (id: string) => (id === 'stone' ? fist : shift(level(id).hands, [0.0, 0.02, 0]));
+  const done = { level: 6, found: ids, puzzle: 6, battle: true, chase: true, dailyDay: dayNumber(), quickBest: 14250 };
+  // the menu, the dog shape about to choose Quick Chase
+  {
+    const page = await open(done);
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 30);
+    await adv(page, 9, () => posesFor('dog'));
+    await shot(page, 'shot-16-menu');
+    await page.close();
+  }
+  // Shadow Mirror: the twin copies the starfish a beat late
+  {
+    const page = await open(done);
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 30);
+    await until(page, (st) => st.state === 'mirror', 200, () => posesFor('moth'));
+    const star = posesFor('moth');
+    await adv(page, 75, (t) => star.map((h) => ({ ...h, pos: [h.pos[0] + 0.1 * Math.sin(t * 2.4), h.pos[1] + 0.05 * Math.sin(t * 3.3), h.pos[2]] as [number, number, number], rot: [0, 0, 20 * Math.sin(t * 2.4)] as [number, number, number] })));
+    await shot(page, 'shot-17-mirror');
+    await page.close();
+  }
+  // Quick Chase: a few clears in, the combo climbing
+  {
+    const page = await open(done);
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 30);
+    await until(page, (st) => st.state === 'chase', 200, () => posesFor('dog'));
+    let spawnAt = -1;
+    for (let i = 0; i < 30 * 40; i++) {
+      const c = (await state(page)).chase;
+      if (!c) break;
+      if (c.wanted && spawnAt < 0) spawnAt = i;
+      if (!c.wanted) spawnAt = -1;
+      await adv(page, 1, () => (c.wanted && i - spawnAt > 18 ? posesFor(c.wanted) : null));
+      if (c.mult >= 2 && c.wanted && i - spawnAt === 14) {
+        await shot(page, 'shot-18-quick');
+        break;
+      }
+    }
+    await page.close();
+  }
 }
 
 // the shadow tools: each puzzle at a telling moment
