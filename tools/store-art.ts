@@ -24,7 +24,7 @@ const ids = LEVELS.map((l) => l.id);
 const level = (id: string) => ALL_LEVELS.find((l) => l.id === id)!;
 const shift = (hs: HandPose[], d: [number, number, number]) => hs.map((h) => ({ ...h, pos: [h.pos[0] + d[0], h.pos[1] + d[1], h.pos[2] + d[2]] as [number, number, number] }));
 
-type Progress = { level: number; found: string[]; puzzle: number; battle: boolean };
+type Progress = { level: number; found: string[]; puzzle: number; battle: boolean; chase?: boolean };
 async function open(p: Progress) {
   const page = await browser.newPage({ ignoreHTTPSErrors: true, viewport: { width: 960, height: 540 } });
   await page.addInitScript((prog: Progress) => {
@@ -42,7 +42,7 @@ async function open(p: Progress) {
       cbs.clear();
       for (const cb of l) cb(now);
     };
-    localStorage.setItem('shadowfolk.v1', JSON.stringify({ gentle: false, dailyDay: -1, streak: 0, ...prog }));
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ gentle: false, dailyDay: -1, streak: 0, chase: true, ...prog }));
   }, p);
   await page.goto(url + '?capture=1');
   for (let i = 0; i < 600 && !(await page.evaluate(() => !!(window as any).__shadowfolk)); i++) {
@@ -146,6 +146,44 @@ if (want('rain')) {
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 30 * 7, (t) => rainPose(t));
   await shot(page, 'shot-3-rain');
+  await page.close();
+}
+
+// the chase: run from the Ink Wolf; a scripted player answers each obstacle after a short pause
+if (want('chase') || /shot-1[3-5]/.test(only ?? '')) {
+  const fist: HandPose[] = [{ hand: 'right', pos: [0.06, -0.22, -0.42], thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } }];
+  const page = await open({ level: 6, found: ids, puzzle: 0, battle: false, chase: false });
+  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+  let spawnAt = -1, frame = 0, done = new Set<string>();
+  const posesFor = (id: string) => (id === 'stone' ? fist : shift(level(id).hands, [0.0, 0.02, 0]));
+  for (let i = 0; i < 30 * 200 && done.size < 3; i++) {
+    const s = await state(page);
+    const c = s.chase;
+    if (!c) break;
+    if (c.wanted && spawnAt < 0) spawnAt = frame;
+    if (!c.wanted) spawnAt = -1;
+    const react = c.wanted && frame - spawnAt > 30 * 1.1;
+    await adv(page, 1, () => (react ? posesFor(c.wanted) : null));
+    frame++;
+    // 1. an obstacle rushes in, the guide shows the shape, the hands are on their way
+    if (!done.has('a') && c.stage === 0 && c.cleared === 1 && c.wanted && frame - spawnAt === 30) {
+      await shot(page, 'shot-13-chase');
+      done.add('a');
+    }
+    // 2. a creature clears an obstacle
+    const log = await page.evaluate(() => (window as any).__shadowfolk.chaseLog());
+    const lastClear = [...log].reverse().find((e: any) => e.type === 'chime');
+    if (!done.has('b') && c.stage === 1 && lastClear && c.cleared >= 8 && !c.wanted && frame % 4 === 0) {
+      await adv(page, 6);
+      await shot(page, 'shot-14-chase-clear');
+      done.add('b');
+    }
+    // 3. the storm
+    if (!done.has('c') && c.stage === 3 && c.wanted && frame - spawnAt === 20) {
+      await shot(page, 'shot-15-storm');
+      done.add('c');
+    }
+  }
   await page.close();
 }
 

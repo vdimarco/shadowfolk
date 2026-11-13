@@ -122,22 +122,29 @@ const XR = !!process.env.XR;
 const ONLY_PUZZLES = !!process.env.ONLY_PUZZLES;
 /** Test mode: start at chapter four and record the battle only. */
 const ONLY_BATTLE = !!process.env.ONLY_BATTLE;
+/** Test mode: start at the chase and record it only. */
+const ONLY_CHASE = !!process.env.ONLY_CHASE;
+if (ONLY_CHASE) {
+  await page.addInitScript((ids: string[]) => {
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 0, chase: false, battle: false }));
+  }, LEVELS.map((l) => l.id));
+}
 if (ONLY_BATTLE) {
   await page.addInitScript((ids: string[]) => {
-    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 2, battle: false }));
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 0, chase: true, battle: false }));
   }, LEVELS.map((l) => l.id));
 }
 if (ONLY_PUZZLES) {
   // test mode: start right after chapter two and run the puzzle scenes only
   await page.addInitScript((ids: string[]) => {
-    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 0 }));
+    localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: ids, gentle: false, dailyDay: -1, streak: 0, puzzle: 0, chase: true, battle: true }));
   }, LEVELS.map((l) => l.id));
 }
 if (ONLY_POKE) {
   // test mode: start at the end of the story and run the button section only
   await page.addInitScript(
     ({ d, day, ids }: { d: string; day: number; ids: string[] }) => {
-      localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: [...ids, d], gentle: false, dailyDay: day, streak: 1, puzzle: 2 }));
+      localStorage.setItem('shadowfolk.v1', JSON.stringify({ level: ids.length, found: [...ids, d], gentle: false, dailyDay: day, streak: 1, puzzle: 6, chase: true, battle: true }));
     },
     { d: dailyLevel(dayNumber()).id, day: dayNumber(), ids: LEVELS.map((l) => l.id) },
   );
@@ -172,7 +179,7 @@ await page.evaluate((keep: boolean) => {
   band.id = 'sf-band';
   band.style.opacity = '0';
   document.body.append(band, cap, card);
-}, ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE);
+}, ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE || ONLY_CHASE);
 
 // ------------------------------------------------------------ timeline
 
@@ -193,7 +200,12 @@ type Info = {
   score: number;
   casts: number;
   battle: { hp: number; flames: number; state: string; windup: number; warded: boolean } | null;
+  chase?: { stage: number; state: string; lead: number; streak: number; cleared: number; missed: number; wanted: string | null; timeLeft: number } | null;
+  chaseN?: number;
+  musicN?: number;
 };
+/** Notes from the hands already turned into soundtrack events. */
+let musicN = 0;
 let lastInfo: Info = { state: '', level: '', score: 0, casts: 0, battle: null };
 
 async function step() {
@@ -210,7 +222,7 @@ async function step() {
       if (k.innerHTML !== cardHtml) k.innerHTML = cardHtml;
       k.style.opacity = String(cardA);
       (window as any).__advance(dt);
-      return { ...sf.state(), casts: sf.battleLog().filter((e: { type: string }) => e.type === 'whoosh').length };
+      return { ...sf.state(), casts: sf.battleLog().filter((e: { type: string }) => e.type === 'whoosh').length, chaseN: sf.chaseLog().length, musicN: sf.musicLog().length };
     },
     {
       poses: hands.map(denorm),
@@ -232,6 +244,12 @@ async function step() {
   }
   if (info.level !== lastLabel) lastLabel = info.level;
   lastInfo = info as Info;
+  // notes played by the hands land in the soundtrack at this moment of the video
+  if ((info.musicN ?? 0) > musicN) {
+    const log: { t: number; type: string }[] = await page.evaluate(() => (window as any).__shadowfolk.musicLog());
+    if (recording) for (const e of log.slice(musicN)) events.push({ t, type: e.type });
+    musicN = log.length;
+  }
   if (!recording) return lastInfo;
   await page.screenshot({ path: `${outDir}/f${String(frame).padStart(5, '0')}.jpg`, type: 'jpeg', quality: 92 });
   frame++;
@@ -294,6 +312,70 @@ async function cast(id: string, abortOnWindup: boolean): Promise<'cast' | 'abort
 /** Let go of the shape so the same spell can be cast again. */
 async function release(sec = 0.35) {
   await move(hands.length ? hands.map((h) => REST[h.hand]) : [REST.right], sec);
+}
+
+const FIST_POSE: HandPose = { hand: 'right', pos: [0.06, -0.22, -0.42], thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } };
+
+/**
+ * The chase, played by a scripted player who answers each obstacle after a
+ * short pause (and misses one on purpose). Only some stretches are recorded.
+ */
+async function playChase() {
+  // [stage, first obstacle (-1: the stage's opening), last obstacle] to keep on camera
+  const windows: [number, number, number][] = [
+    [0, -1, 3],
+    [1, 1, 3],
+    [3, -1, 2],
+    [4, 6, 99],
+  ];
+  const lines: Record<string, string> = {
+    '0:-1': 'Then the Ink Wolf gives chase. Run!',
+    '0:0': 'Make the shape before the obstacle hits.',
+    '0:2': 'Too slow, and the wolf gains on you.',
+    '0:3': 'The guide shows each shape. Every creature helps.',
+    '1:1': 'Faster now. A fist smashes a boulder.',
+    '3:-1': 'The storm. The paper goes dark, and the obstacles come faster.',
+    '4:6': 'The last run: everything at once.',
+  };
+  let stage = -1, local = -1, spawnFrame = 0, lastWanted: string | null = null, logN = lastInfo.chaseN ?? 0;
+  const MISS = '0:2';
+  events.push({ t: frame / FPS, type: 'chase' });
+  for (let i = 0; i < 400 * FPS; i++) {
+    const c = lastInfo.chase;
+    if (lastInfo.state !== 'chase' || !c) break;
+    if (c.stage !== stage) {
+      stage = c.stage;
+      local = -1;
+    }
+    if (c.wanted && !lastWanted) {
+      local++;
+      spawnFrame = i;
+    }
+    lastWanted = c.wanted;
+    const key = `${stage}:${local}`;
+    const on = c.state === 'won' || windows.some(([s, a, b]) => s === stage && local >= a && local <= b);
+    recording = on;
+    if (on && lines[key]) say(lines[key]);
+    if (c.state === 'won') say('You escaped! But the wolf is waiting at the top of the cliff...');
+    // answer the obstacle after a pause, moving the hands there smoothly
+    const pause = stage < 2 ? 1.0 : 0.75;
+    let target: NPose[];
+    if (c.wanted && key !== MISS && (i - spawnFrame) / FPS > pause) {
+      const poses = c.wanted === 'stone' ? [FIST_POSE] : LEVELS.find((l) => l.id === c.wanted)!.hands;
+      target = poses.map((p) => shift(norm(p), [-0.02, 0.02, 0]));
+    } else target = [REST.right];
+    const k = 0.22;
+    hands = target.map((b, idx) => lerpPose(hands.find((f) => f.hand === b.hand) ?? hands[idx] ?? REST[b.hand], b, k));
+    const s = await step();
+    // the chase's sound cues at this moment of the video
+    if ((s.chaseN ?? 0) > logN) {
+      const log: { t: number; type: string }[] = await page.evaluate(() => (window as any).__shadowfolk.chaseLog());
+      if (recording) for (const e of log.slice(logN)) if (e.type !== 'chase') events.push({ t: frame / FPS, type: e.type });
+      logN = log.length;
+    }
+  }
+  recording = true;
+  console.log(`chase: done at ${(frame / FPS).toFixed(1)} s of video`);
 }
 
 async function playBattle() {
@@ -378,13 +460,18 @@ if (XR) {
   if (!(await page.evaluate(() => (window as any).__shadowfolk.state().xr))) throw new Error('XR session did not start');
   console.log('XR session started in IWER');
 }
-if (ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+if (ONLY_POKE || ONLY_PUZZLES || ONLY_BATTLE || ONLY_CHASE) await page.evaluate(() => (window as any).__shadowfolk.press('next'));
 
 try {
   if (ONLY_POKE) throw new Error('skip-story');
   if (ONLY_BATTLE) {
     await until((s) => s.state === 'battle', 8);
     await playBattle();
+    throw new Error('battle only');
+  }
+  if (ONLY_CHASE) {
+    await until((s) => s.state === 'chase', 8);
+    await playChase();
     throw new Error('battle only');
   }
   if (!ONLY_PUZZLES) {
@@ -442,6 +529,11 @@ try {
       await playLevel(lv.id, lv.hands, captions[lv.id], offsets[lv.id]);
     }
     recording = true;
+    // C1. the chase, then the Ink Wolf at the top of the cliff
+    await until((s) => s.state === 'chase', 8);
+    await playChase();
+    await until((s) => s.state === 'battle', 12);
+    await playBattle();
   }
 
   // C2. chapter three: shadow puzzles, solved by the scripted moves in tools/puzzle-moves.ts
@@ -465,15 +557,19 @@ try {
   const isDone = (id: string) => (s: { state: string; level: string }) => s.level !== `puzzle-${id}` || (s as any).puzzleDone;
   const flat = { thumb: { out: 0.05, opp: 0 }, index: { splay: 2 }, middle: { splay: 0 }, ring: { splay: -2 }, pinky: { splay: -4 } };
 
-  await until((s) => s.state === 'puzzle', 6);
-  // the rain: a flat hand is a slide
-  say('Chapter three: your shadow is solid, and each hand shape is a tool.');
-  await hold(1.0);
-  say('A flat hand is a slide. Guide the rain into the cup.');
-  console.log('rain', JSON.stringify(await follow(rainPose, isDone('rain'), 40)));
-  await cutTo('puzzle-bowl');
+  /** Skip a puzzle off camera. */
+  async function skip(id: string, next: string) {
+    recording = false;
+    await until((s) => s.level === `puzzle-${id}`, 10);
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await until((s) => s.level === next, 10);
+    recording = true;
+  }
+  await until((s) => s.state === 'puzzle', 10);
+  // the rain: off camera (the video is long enough)
+  await skip('rain', 'puzzle-bowl');
   // the bowl: first a flat hand, a ghost here; then a cupped hand
-  say('Each puzzle allows only some shapes. Any other shape is a ghost.');
+  say('After the story: puzzles where each hand shape is a tool. Other shapes are ghosts.');
   const ghost = norm({ hand: 'right', pos: handAt(-0.36, -0.2), rot: [0, 0, 54], ...flat });
   await move([ghost], 1.0);
   await hold(2.2);
@@ -481,22 +577,14 @@ try {
   console.log('bowl', JSON.stringify(await follow(bowlPose, isDone('bowl'), 40)));
   await move([REST.right], 0.8);
   // the fireflies: skipped off camera to keep the video short
-  recording = false;
-  await until((s) => s.level === 'puzzle-fireflies', 10);
-  await page.evaluate(() => (window as any).__shadowfolk.press('next'));
-  await until((s) => s.level === 'puzzle-pearls', 10);
-  recording = true;
+  await skip('fireflies', 'puzzle-pearls');
   // the pearls: spread fingers are a sieve
   say('Spread fingers are a sieve: rain falls through, and pearls roll to the shell.');
   console.log('pearls', JSON.stringify(await follow(pearlsPose, isDone('pearls'), 40)));
-  await cutTo('puzzle-ice');
-  // the frozen cloud: a fist knocks the ice, then a flat hand is a slide
-  say('A fist is a stone. Knock the frozen cloud loose.');
-  await follow(icePose, (s) => (s as any).puzzleCount >= 0 && (s as any).puzzleCount < 64 ** 3, 6);
-  say('Then open your hand into a slide.');
-  await move([REST.left, norm(icePose(10)[0])], 1.0);
-  console.log('ice', JSON.stringify(await until(isDone('ice'), 30)));
-  await cutTo('puzzle-garden');
+  await hold(1.2);
+  await move([REST.right], 0.6);
+  // the frozen cloud: off camera
+  await skip('ice', 'puzzle-garden');
   // the moon garden: every tool at once
   say('The Moon Garden: a sieve over a slide sorts pearls from rain.');
   await follow(gardenPose, (s) => (s as any).puzzleCount >= 0 && (s as any).puzzleCount < 64 ** 3, 6);
@@ -508,10 +596,6 @@ try {
   await until((s) => s.state !== 'puzzle', 10);
   recording = true;
   if (ONLY_PUZZLES) throw new Error('skip-story');
-
-  // C3. chapter four: the Ink Wolf, a spell battle
-  await until((s) => s.state === 'battle', 8);
-  await playBattle();
   await until((s) => s.state === 'level', 10);
 
   // C. daily shadow
@@ -526,7 +610,7 @@ try {
 }
 
 try {
-  if (ONLY_PUZZLES || ONLY_BATTLE) throw new Error('puzzles only');
+  if (ONLY_PUZZLES || ONLY_BATTLE || ONLY_CHASE) throw new Error('puzzles only');
   // D. poke buttons on the tray: Book, then Gentle
   say('Every button is a fingertip poke. No controllers.');
   await move([REST.right], 0.3, (k) => (pitch = -38 * ease(k)));

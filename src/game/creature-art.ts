@@ -29,6 +29,15 @@ export const ART: Record<string, ArtInfo> = {
   owl: { aspect: 0.681, height: 0.62 },
   spider: { aspect: 0.977, height: 0.57 },
   wolf: { aspect: 1.435, height: 0.52 },
+  // the chase: obstacles (crimson, like the wolf) and the runner with the lantern
+  log: { aspect: 1.798, height: 0.15 },
+  river: { aspect: 2.31, height: 0.12 },
+  rock: { aspect: 1.09, height: 0.24 },
+  bats: { aspect: 1.135, height: 0.2 },
+  thorns: { aspect: 1.255, height: 0.24 },
+  dark: { aspect: 1.288, height: 0.26 },
+  gap: { aspect: 1.55, height: 0.2 },
+  runner: { aspect: 1.079, height: 0.17 },
 };
 /** Where the wolf's eye is in its image (u, v from the bottom left). */
 export const WOLF_EYE_UV: [number, number] = [0.148, 0.585];

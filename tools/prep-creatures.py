@@ -1,6 +1,7 @@
 """Trim Higgsfield creature art to its visible pixels and save small WebP files for the game.
 
-Run: python3 -I tools/prep-creatures.py <dir-with-pngs> public/creatures
+Run: python3 -I tools/prep-creatures.py <dir-with-pngs> public/creatures [id,id,...]
+The chase art: ... public/creatures log,river,rock,bats,thorns,dark,gap,runner
 Prints each file's size and aspect, for src/game/creature-art.ts.
 """
 import sys
@@ -9,7 +10,7 @@ from PIL import Image
 
 src, dst = Path(sys.argv[1]), Path(sys.argv[2])
 dst.mkdir(parents=True, exist_ok=True)
-ids = ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', 'fox', 'butterfly', 'owl', 'spider', 'wolf']
+ids = sys.argv[3].split(',') if len(sys.argv) > 3 else ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer', 'fox', 'butterfly', 'owl', 'spider', 'wolf']
 for cid in ids:
     p = src / f'{cid}.png'
     if not p.exists():

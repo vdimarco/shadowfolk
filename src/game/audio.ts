@@ -13,6 +13,10 @@ const CHORDS: { bass: number; pad: number[]; mel: number[] }[] = [
   { bass: 33, pad: [61, 64, 67, 69], mel: [69, 73, 76, 79, 81] }, // A7sus feel
 ];
 const CHORD_SECONDS = 8;
+/** D major pentatonic over two octaves from D4: every note fits the score's chords. */
+const PENTA = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83];
+/** Each shadow's instrument (see music.ts). */
+export type Instrument = 'harp' | 'flute' | 'marimba' | 'drum' | 'horn' | 'bells' | 'bigdrum';
 
 export class Sfx {
   private ctx: BaseAudioContext | null = null;
@@ -27,6 +31,8 @@ export class Sfx {
   private scheduler: number | null = null;
   private lastMel = -1;
   private battleOn = false;
+  /** Seconds between drum steps: 0.375 in the battle, faster in the chase. */
+  private drumEvery = 0.375;
   private nextDrumAt = 0;
   private drumStep = 0;
 
@@ -57,14 +63,21 @@ export class Sfx {
       { t: seconds * 0.7, type: 'tap' },
     ];
     let battleFrom = -1;
+    let every = 0.375;
     for (const c of list) {
-      if (c.type === 'battle') battleFrom = c.t;
-      else if (c.type === 'calm' && battleFrom >= 0) {
-        sfx.drumsBetween(battleFrom, c.t);
+      if (c.type === 'battle' || c.type === 'chase') {
+        if (battleFrom >= 0) sfx.drumsBetween(battleFrom, c.t, every);
+        battleFrom = c.t;
+        every = c.type === 'chase' ? 0.25 : 0.375;
+      } else if (c.type === 'calm' && battleFrom >= 0) {
+        sfx.drumsBetween(battleFrom, c.t, every);
         battleFrom = -1;
+      } else if (c.type.startsWith('note:') && battleFrom >= 0) {
+        // notes in the chase land on the drum grid
+        sfx.cueAt(c.type, battleFrom + Math.ceil((c.t - battleFrom) / every - 0.001) * every);
       } else sfx.cueAt(c.type, c.t);
     }
-    if (battleFrom >= 0) sfx.drumsBetween(battleFrom, seconds);
+    if (battleFrom >= 0) sfx.drumsBetween(battleFrom, seconds, every);
     const buf = await ctx.startRendering();
     return encodeWav(buf);
   }
@@ -136,9 +149,9 @@ export class Sfx {
     if (this.battleOn) {
       if (this.nextDrumAt < horizon - 1.2) this.nextDrumAt = horizon - 1.2;
       while (this.nextDrumAt < horizon) {
-        this.drumAt(this.nextDrumAt, this.drumStep);
+        if (this.nextDrumAt >= this.silentUntil) this.drumAt(this.nextDrumAt, this.drumStep);
         this.drumStep = (this.drumStep + 1) % 8;
-        this.nextDrumAt += 0.375;
+        this.nextDrumAt += this.drumEvery;
       }
     }
     while (this.nextChordAt < horizon) {
@@ -330,6 +343,105 @@ export class Sfx {
   // ------------------------------------------------------------- battle
 
   /** The Ink Wolf: a low frame-drum pulse under the score while the battle runs. */
+  /** The chase speeds the drums up: seconds between steps (0.375 is the battle's pace). */
+  setTempo(every: number) {
+    this.drumEvery = every;
+  }
+
+  /** Seconds until the next drum step (0 when no drums are playing). */
+  toBeat(): number {
+    if (!this.ctx || !this.battleOn) return 0;
+    let t = this.nextDrumAt - this.drumEvery;
+    const now = this.ctx.currentTime;
+    while (t < now) t += this.drumEvery;
+    return t - now;
+  }
+
+  /** A miss: the drums drop out for one bar. */
+  dropBar() {
+    if (this.ctx) this.silentUntil = this.ctx.currentTime + this.drumEvery * 8;
+  }
+  private silentUntil = 0;
+
+  /** One note of a creature's instrument, `delay` seconds from now. Degree: 0..9 up the D major pentatonic from D4. */
+  note(inst: Instrument, degree: number, delay = 0) {
+    if (this.ctx) this.noteAt(inst, degree, this.ctx.currentTime + delay);
+  }
+
+  private noteAt(inst: Instrument, degree: number, t: number) {
+    const ctx = this.ctx!;
+    const d = Math.max(0, Math.min(PENTA.length - 1, Math.round(degree)));
+    const shift = inst === 'marimba' || inst === 'horn' ? -12 : inst === 'flute' || inst === 'bells' ? 12 : 0;
+    const f = midi(PENTA[d] + shift);
+    const out = ctx.createGain();
+    out.connect(this.master!);
+    out.connect(this.wet!);
+    const env = (g: GainNode, peak: number, attack: number, decay: number) => {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+      return t + attack + decay + 0.05;
+    };
+    const osc = (type: OscillatorType, freq: number, gain: number, attack: number, decay: number, dest: AudioNode = out) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = freq;
+      const g = ctx.createGain();
+      const end = env(g, gain, attack, decay);
+      o.connect(g).connect(dest);
+      o.start(t);
+      o.stop(end);
+      return o;
+    };
+    switch (inst) {
+      case 'harp':
+        osc('triangle', f, 0.16, 0.004, 1.3);
+        osc('sine', f * 2, 0.05, 0.004, 0.6);
+        break;
+      case 'flute': {
+        const o = osc('sine', f, 0.11, 0.07, 0.75);
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 5.2;
+        const depth = ctx.createGain();
+        depth.gain.value = 6;
+        lfo.connect(depth).connect(o.detune);
+        lfo.start(t);
+        lfo.stop(t + 0.9);
+        osc('sine', f * 2, 0.02, 0.05, 0.4);
+        break;
+      }
+      case 'marimba':
+        osc('sine', f, 0.2, 0.003, 0.55);
+        osc('sine', f * 4, 0.05, 0.002, 0.12);
+        break;
+      case 'drum': {
+        const o = osc('sine', 120 + d * 14, 0.3, 0.004, 0.32);
+        o.frequency.setValueAtTime(140 + d * 14, t);
+        o.frequency.exponentialRampToValueAtTime(70 + d * 7, t + 0.25);
+        break;
+      }
+      case 'horn': {
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(500, t);
+        lp.frequency.linearRampToValueAtTime(1400, t + 0.15);
+        lp.connect(out);
+        osc('sawtooth', f, 0.07, 0.12, 0.9, lp);
+        osc('sawtooth', f * 1.004, 0.05, 0.14, 0.85, lp);
+        break;
+      }
+      case 'bells':
+        osc('sine', f, 0.09, 0.003, 2.2);
+        osc('sine', f * 2.76, 0.035, 0.003, 1.1);
+        osc('sine', f * 5.4, 0.015, 0.003, 0.5);
+        break;
+      case 'bigdrum':
+        this.drumAt(t, 0, 1.7);
+        this.noiseSweep(t, 0.25, 900, 120, 0.25);
+        break;
+    }
+  }
+
   setBattle(on: boolean) {
     if (on && !this.battleOn && this.ctx) {
       this.nextDrumAt = this.ctx.currentTime + 0.1;
@@ -345,6 +457,10 @@ export class Sfx {
 
   private cueAt(type: string, t: number) {
     if (!this.ctx) return;
+    if (type.startsWith('note:')) {
+      const [, inst, deg] = type.split(':');
+      return this.noteAt(inst as Instrument, Number(deg), t);
+    }
     switch (type) {
       case 'chime':
         return this.chimeAt(t);
@@ -378,9 +494,9 @@ export class Sfx {
     }
   }
 
-  private drumsBetween(t0: number, t1: number) {
+  private drumsBetween(t0: number, t1: number, every = 0.375) {
     let step = 0;
-    for (let t = t0; t < t1; t += 0.375) this.drumAt(t, step++ % 8);
+    for (let t = t0; t < t1; t += every) this.drumAt(t, step++ % 8);
   }
 
   /** A soft frame drum: a falling sine with a breath of noise. Pattern: boom . . boom . boom . . */

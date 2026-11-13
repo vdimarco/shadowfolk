@@ -30,6 +30,38 @@ const { chromium } = require('playwright');
         await p.evaluate(() => window.__shadowfolk.press('next'));
         await p.waitForTimeout(500);
       }
+      // the chase: answer each obstacle with its shape (a fist for a rock) until you escape
+      if ((await st()).state === 'chase') {
+        const t0 = Date.now();
+        const fist = [{ hand: 'right', pos: [0.06, -0.22, -0.42], thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } }];
+        let last = null;
+        while ((await st()).state === 'chase' && Date.now() - t0 < 600000) {
+          const cs = (await st()).chase;
+          // the software renderer is slow: once the chase has crossed into stage two, skip the rest
+          if (cs && cs.stage >= 1 && cs.cleared >= 8) {
+            console.log(`chase: stage ${cs.stage + 1}, ${cs.cleared} cleared, ${cs.missed} missed; skipping the rest`);
+            await p.evaluate(() => window.__shadowfolk.press('next'));
+            await p.waitForTimeout(500);
+            break;
+          }
+          const want = cs && cs.wanted;
+          if (want !== last) {
+            await p.evaluate(({ want, fist }) => {
+              const sf = window.__shadowfolk;
+              sf.setPoses(!want ? null : want === 'stone' ? fist : sf.posesFor(want));
+            }, { want, fist });
+            last = want;
+          }
+          await p.waitForTimeout(120);
+        }
+        const after = await st();
+        const log = await p.evaluate(() => window.__shadowfolk.chaseLog());
+        const misses = log.filter((e) => e.type === 'hurt').length;
+        if (after.state === 'chase') throw new Error('chase did not end: ' + JSON.stringify(after.chase));
+        console.log(`chase: done with ${misses} misses -> ${after.state}/${after.level}`);
+        await p.evaluate(() => window.__shadowfolk.setPoses(null));
+        continue;
+      }
       // chapter four: fight the Ink Wolf with spells; block with the starfish when its eyes glow
       if ((await st()).state === 'battle') {
         const t0 = Date.now();

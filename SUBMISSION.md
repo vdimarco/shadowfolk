@@ -29,8 +29,9 @@ You sit in an open-air shadow theater on a starry night, with a lamp behind you,
 
 - Six story shadows teach the classic shapes that everyone can read: an open hand, a rabbit, a crocodile, a dog, a bird and a stag.
 - Stuck? A glowing golden hand appears on your own wrist, already in the pose, so you only turn your hand and set your fingers to match.
-- Chapter three makes your shadow solid, and each hand shape is a tool: a flat hand is a slide, a cupped hand is a bowl that catches rain and pours it, spread fingers are a sieve that lets rain through but stops pearls, and a fist is a stone that knocks ice loose. Each puzzle allows only some tools; any other shape casts a faint ghost shadow that things fall through. Six puzzles: guide rain, carry it in your hand, herd fireflies, sort pearls from rain, free a frozen cloud, and grow a moon flower with every tool at once.
-- Chapter four is a spell battle. Every creature you have woken is a spell. Make its shape and it flies across the paper at the Ink Wolf, which creeps toward your three lamp flames. Birds and hares swoop, the dog and crocodile hit twice as hard, the starfish raises a ward, and the deer relights a flame. The wolf's eyes glow red before it bites, so you have time to block.
+- Then the Ink Wolf gives chase. The paper scrolls through a forest, a river, cliffs and a storm while the wolf runs behind you. Obstacles rush in, and each needs the right shadow before it hits: the hare leaps a log, the crocodile swims a river, the bird flies a gap, the dog barks away bats, the deer parts thorns, the starfish shines away the darkness, and a fist smashes a boulder. Miss one and the wolf gains; three in a row and you pull ahead. Five stages, each faster than the last.
+- After the story, the shadow tools puzzles make your shadow solid, and each hand shape is a tool: a flat hand is a slide, a cupped hand is a bowl that catches rain and pours it, spread fingers are a sieve that lets rain through but stops pearls, and a fist is a stone that knocks ice loose. Each puzzle allows only some tools; any other shape casts a faint ghost shadow that things fall through. Six puzzles: guide rain, carry it in your hand, herd fireflies, sort pearls from rain, free a frozen cloud, and grow a moon flower with every tool at once.
+- At the top of the cliff, the wolf turns to fight: a spell battle. Every creature you have woken is a spell. Make its shape and it flies across the paper at the Ink Wolf, which creeps toward your three lamp flames. Birds and hares swoop, the dog and crocodile hit twice as hard, the starfish raises a ward, and the deer relights a flame. The wolf's eyes glow red before it bites, so you have time to block.
 - After the story, a new shadow wakes every day. The Shadow Book keeps your collection and your daily streak, and free play lets any shadow you know wake its creature.
 
 ### How we built it
@@ -68,10 +69,11 @@ Hand shadow puppets are one of the oldest games people play with their hands: a 
 
 You sit in an open-air shadow theater on a starry night. A lamp is behind you. Lift your hands, and their soft shadows fall on a paper screen. A golden line shows a sleeping creature. Make that shape and hold it, and the creature wakes: its eye opens, and the hare hops away, the crocodile slides off, the bird flies into the night.
 
-- **Chapters one and two:** six story shadows teach the classic shapes, from one open hand to the two-hand bird and stag.
+- **Chapter one:** six story shadows teach the classic shapes, from one open hand to the two-hand bird and stag.
 - **Help when you are stuck:** a golden hand appears on your own wrist, already in the pose.
-- **Chapter three, shadow tools:** your shadow becomes solid, and each hand shape is a tool. A flat hand is a slide, a cupped hand is a bowl that carries rain, spread fingers are a sieve for pearls, and a fist is a stone that knocks ice loose. Each puzzle allows only some tools, so the puzzle is choosing the right shape.
-- **Chapter four, the Ink Wolf:** every creature you have woken is now a spell. Make its shape and it flies at a wolf made of ink that creeps toward your three lamp flames. The dog and crocodile hit hard, the starfish blocks a bite, and the deer lights a flame again. The wolf's eyes glow red before it bites, so you have time to block.
+- **Chapter two, the Chase:** the Ink Wolf hunts you across the paper through five faster and faster stages. Every obstacle needs the right shadow before it hits. Miss, and the wolf gains on you.
+- **After the story, shadow tools:** your shadow becomes solid, and each hand shape is a tool. A flat hand is a slide, a cupped hand is a bowl that carries rain, spread fingers are a sieve for pearls, and a fist is a stone that knocks ice loose. Each puzzle allows only some tools, so the puzzle is choosing the right shape.
+- **Chapter three, the Ink Wolf:** every creature you have woken is now a spell. Make its shape and it flies at a wolf made of ink that creeps toward your three lamp flames. The dog and crocodile hit hard, the starfish blocks a bite, and the deer lights a flame again. The wolf's eyes glow red before it bites, so you have time to block.
 - **Every day:** a new shadow wakes. The Shadow Book keeps your collection and your streak, and free play lets any shadow you know wake its creature.
 
 ## How we built it
@@ -120,6 +122,7 @@ How the hands are used:
 - Shapes: finger curl, finger spread and wrist turn make 6 classic hand shadows (one-hand and two-hand). Hold a shape for less than a second and the creature wakes.
 - Guidance: when a player is stuck, a golden hand model appears on their own wrist, already in the pose, so they only change their fingers and the turn of their hand.
 - Puzzles: the hand-and-arm shadow becomes solid, and the game reads each hand's shape from its joints as one of four tools: flat hand (slide), cupped hand (bowl; turn the palm down to pour), spread fingers (sieve), fist (stone). A shape the puzzle does not allow casts a ghost shadow that is not solid.
+- Chase: the same shapes, under time pressure. Each obstacle names the shape it needs and shows its outline, and the player has a few seconds to make it. A fist is read from the hand's joints.
 - Battle: every shape the player knows is a spell. Making a shape casts it at the Ink Wolf. The starfish blocks and the deer heals.
 - Buttons: three brass buttons on a tray within easy reach of a seated player. You poke them with a fingertip.
 
@@ -181,7 +184,7 @@ Shadowfolk: a hands-only shadow puppet game for Meta Quest (Meta VR Start 2026)
 
 Description:
 
-Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a starfish, a hare, a crocodile, a dog, a bird and a deer. Then your shadow becomes solid, and each hand shape is a tool for puzzles, and every creature becomes a spell in a battle against the Ink Wolf. After the story, a new shadow wakes every day.
+Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you, and your real hands cast soft shadows on a paper screen. Make the shape of each sleeping creature and it wakes up: a starfish, a hare, a crocodile, a dog, a bird and a deer. Then the Ink Wolf chases you across the paper: make the right shadow before each obstacle hits. At the top of the cliff, every creature becomes a spell in a battle against the wolf. After the story, puzzles turn each hand shape into a tool. After the story, a new shadow wakes every day.
 
 - No controllers. Every action uses hand tracking.
 - Seated play, within a two-foot radius.

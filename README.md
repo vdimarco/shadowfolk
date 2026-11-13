@@ -35,6 +35,7 @@ The site also has a web app manifest and icons. If it is later packaged for the 
 - `src/game/theater.ts`: the paper wall shader, the room, and the button tray.
 - `src/game/game-system.ts`: hand tracking, game states, the creature animations, and the Shadow Book.
 - `src/game/puzzles.ts` and `src/game/tools.ts`: chapter three, shadow tools. The player's shadow is solid on the paper, and each hand's shape (read from its joints) is a tool: slide, bowl, sieve or stone. Six puzzles (rain, bowl, fireflies, pearls, frozen cloud, moon garden). `tools/test-puzzles.ts` checks them with drawn shadows; `tools/plan-tools.ts` solves them with real hand poses.
+- `src/game/chase.ts` and `src/game/chase-scene.ts`: chapter two, the Chase. The Ink Wolf hunts the player through five faster stages; each obstacle needs the right shadow before it hits (a fist is read from the joints). `tools/test-chase.ts` plays whole runs with scripted players.
 - `src/game/battle.ts` and `src/game/battle-scene.ts`: chapter four, the Ink Wolf spell battle. Every creature the player has found is a spell. `tools/test-battle.ts` plays whole fights; `tools/preview-wolf.ts` draws the wolf to a PNG.
 - `src/game/world.ts`: the open-air night theater around the paper (sky, moon, pines, stage, curtains, lanterns, fireflies).
 - `src/game/daily.ts`: a new shape each day from a date seed. The book keeps a daily streak.

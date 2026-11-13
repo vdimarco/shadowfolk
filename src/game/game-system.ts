@@ -27,11 +27,14 @@ import { SkinnedHands } from './skinned-hands.js';
 import { Theater } from './theater.js';
 import { NightWorld } from './world.js';
 import { BattleScene } from './battle-scene.js';
+import { ChaseScene } from './chase-scene.js';
+import type { Instrument } from './audio.js';
+import { degreeFor, HandMusic, instrumentFor } from './music.js';
 import { JointFilter } from './smooth.js';
 import { ART, ArtSprite, CreatureArt } from './creature-art.js';
 import { Creature3D } from './creature3d.js';
 
-type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle';
+type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle' | 'chase';
 
 const HOLD_TIME = 0.55;
 /** Close but not quite: stay this near the shape for NEAR_TIME and it wakes anyway. */
@@ -54,7 +57,12 @@ interface DebugApi {
     puzzleDone: boolean;
     xr: boolean;
     battle: { hp: number; maxHp: number; flames: number; state: string; windup: number; warded: boolean; spells: string[] } | null;
+    chase: { stage: number; state: string; lead: number; streak: number; cleared: number; missed: number; wanted: string | null; timeLeft: number } | null;
   };
+  /** Chase cues so far (stages, clears, misses), in chase seconds, for the video soundtrack. */
+  chaseLog(): { t: number; type: string }[];
+  /** Notes played by the hands so far ('note:<instrument>:<degree>'), for the video soundtrack. */
+  musicLog(): { t: number; type: string }[];
   /** Battle cues so far (casts, hits, strikes), in battle seconds, for the video soundtrack. */
   battleLog(): { t: number; type: string }[];
   /** Camera and room positions, to check where the room was anchored. */
@@ -156,6 +164,11 @@ export class GameSystem extends createSystem({}) {
   private progress!: Progress;
   /** Chapter four: the Ink Wolf. */
   private battleScene!: BattleScene;
+  /** The chase: the Ink Wolf hunts you across the paper. */
+  private chaseScene!: ChaseScene;
+  /** Music from the hands: each shape is an instrument, its height the note. */
+  private music!: HandMusic;
+  private clock = 0;
   /** The illustrated creature that appears when a shadow wakes. */
   private wakeSprite = new ArtSprite(6);
   private wakeArt = false;
@@ -205,6 +218,8 @@ export class GameSystem extends createSystem({}) {
     CreatureArt.load();
     this.theater.root.add(this.wakeSprite.mesh, this.creature3d.root);
     this.battleScene = new BattleScene(this.theater, this.sfx);
+    this.music = new HandMusic(this.sfx);
+    this.chaseScene = new ChaseScene(this.theater, this.sfx, this.music);
     this.nightWorld = new NightWorld();
     this.theater.root.add(this.nightWorld.root);
     // real hand models only where we draw simulated hands (desktop demo and capture)
@@ -241,6 +256,7 @@ export class GameSystem extends createSystem({}) {
 
   private enter(s: State) {
     if (this.state === 'battle' && s !== 'battle') this.battleScene.stop();
+    if (this.state === 'chase' && s !== 'chase') this.chaseScene.stop();
     if (s !== 'wake') {
       this.wakeSprite.set(0);
       this.wakeSprite.hide();
@@ -271,6 +287,8 @@ export class GameSystem extends createSystem({}) {
         this.inkLevel(false);
         break;
       case 'wake':
+        // the creature sings as it wakes: three rising notes of its instrument
+        this.music.motif(this.clock, instrumentFor(this.level.id), Math.min(5, degreeFor(this.handHeight())));
         u.uTargetMode.value = 1;
         u.uMeter.value = 0;
         u.uFlash.value.y = 0.7; // a soft golden flash as the shadow comes alive
@@ -325,6 +343,13 @@ export class GameSystem extends createSystem({}) {
         u.uLiveAlpha.value = 1;
         this.battleScene.start(this.progress.gentle, this.progress.found);
         break;
+      case 'chase':
+        this.isDaily = false;
+        this.freePlay = false;
+        this.targetJoints = [];
+        u.uLiveAlpha.value = 1;
+        this.chaseScene.start(this.progress.gentle);
+        break;
       case 'free':
         this.freePlay = true;
         this.isDaily = false;
@@ -340,6 +365,17 @@ export class GameSystem extends createSystem({}) {
     this.updateLabels();
   }
 
+  /** The height of the higher hand's palm (theater y), or a middle height with no hands. */
+  private handHeight() {
+    let y = -Infinity;
+    for (const side of SIDES_RL) {
+      if (!this.present[side]) continue;
+      const j = this.joints[side];
+      y = Math.max(y, (j[1] + j[34]) / 2);
+    }
+    return Number.isFinite(y) ? y : -0.25;
+  }
+
   private progressIndex() {
     return Math.min(this.progress.level, LEVELS.length - 1);
   }
@@ -353,11 +389,15 @@ export class GameSystem extends createSystem({}) {
       this.isDaily = false;
       this.level = LEVELS[this.progress.level];
       this.enter('level');
-    } else if ((this.progress.puzzle ?? 0) < PUZZLES.length) {
-      this.isDaily = false;
-      this.enter('puzzle');
+    } else if (!this.progress.chase) {
+      // the adventure: run from the Ink Wolf, then face it
+      this.enter('chase');
     } else if (!this.progress.battle) {
       this.enter('battle');
+    } else if ((this.progress.puzzle ?? 0) < PUZZLES.length) {
+      // after the story: the shadow tools puzzles
+      this.isDaily = false;
+      this.enter('puzzle');
     } else if (this.progress.dailyDay !== dayNumber()) {
       this.startDaily();
     } else {
@@ -459,6 +499,10 @@ export class GameSystem extends createSystem({}) {
         this.startNextLevel();
       } else if (this.state === 'battle') {
         this.progress.battle = true;
+        saveProgress(this.progress);
+        this.startNextLevel();
+      } else if (this.state === 'chase') {
+        this.progress.chase = true;
         saveProgress(this.progress);
         this.startNextLevel();
       }
@@ -652,6 +696,7 @@ export class GameSystem extends createSystem({}) {
     this.nightWorld.update(time);
     if (this.paused) return;
     this.stateTime += dt;
+    this.clock += dt;
 
     this.readHands(dt);
     this.checkButtons(dt);
@@ -685,7 +730,7 @@ export class GameSystem extends createSystem({}) {
 
     this.updateGuide(dt);
     u.uEye.value.w = 0;
-    if (this.state !== 'puzzle' && this.state !== 'battle') u.uDotCount.value = 0;
+    if (this.state !== 'puzzle' && this.state !== 'battle' && this.state !== 'chase') u.uDotCount.value = 0;
 
     switch (this.state) {
       case 'intro': {
@@ -791,6 +836,16 @@ export class GameSystem extends createSystem({}) {
       case 'puzzle':
         this.updatePuzzle(dt);
         break;
+      case 'chase': {
+        const done = this.chaseScene.update(dt, renderer, this.mask, area, this.joints, this.present, this.handHeight());
+        this.score = this.chaseScene.score;
+        if (done) {
+          this.progress.chase = true;
+          saveProgress(this.progress);
+          this.startNextLevel();
+        }
+        break;
+      }
       case 'battle': {
         const done = this.battleScene.update(dt, renderer, this.mask, area);
         this.score = this.battleScene.score;
@@ -804,6 +859,16 @@ export class GameSystem extends createSystem({}) {
       default:
         break;
     }
+    // music from the hands: the shape being made is the instrument, the hand's height the note
+    let inst: Instrument | null = null;
+    const slack = 0.12 + (this.progress.gentle ? 0.1 : 0);
+    if (this.state === 'level') {
+      if (this.score >= this.level.threshold - slack) inst = instrumentFor(this.level.id);
+    } else if (this.state === 'free' && this.freeBest >= 0) {
+      const fc = this.freeCands[this.freeBest];
+      if (this.score >= fc.level.threshold - slack) inst = instrumentFor(fc.level.id);
+    }
+    this.music.play(this.clock, inst, this.handHeight());
     // magic: the glow around the shadow follows how close it is to the shape
     let want = 0;
     if (this.state === 'level' || this.state === 'free') {
@@ -811,11 +876,13 @@ export class GameSystem extends createSystem({}) {
       want = Math.max(0, Math.min(1, (this.score - (thr - 0.24)) / 0.24));
     } else if (this.state === 'battle') {
       want = this.battleScene.magic;
+    } else if (this.state === 'chase') {
+      want = this.chaseScene.magic;
     } else if (this.state === 'intro') {
       want = this.present.left || this.present.right ? 0.45 : 0;
     }
     this.magic += (want - this.magic) * Math.min(1, dt * 5);
-    if (this.state !== 'battle') u.uFlash.value.y = Math.max(0, u.uFlash.value.y - dt * 1.6);
+    if (this.state !== 'battle' && this.state !== 'chase') u.uFlash.value.y = Math.max(0, u.uFlash.value.y - dt * 1.6);
     u.uMagic.value = this.magic;
     // art mode (store images): a clean paper with no text and no meter
     if (this.artMode) {
@@ -1544,8 +1611,9 @@ export class GameSystem extends createSystem({}) {
       },
       state: () => ({
         state: this.state,
-        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.state === 'battle' ? 'battle' : this.level.id,
+        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.state === 'battle' ? 'battle' : this.state === 'chase' ? 'chase' : this.level.id,
         battle: this.state === 'battle' ? this.battleScene.info : null,
+        chase: this.state === 'chase' ? this.chaseScene.info : null,
         puzzleCount: this.puzzleCount,
         puzzleDone: this.puzzleDoneAt >= 0,
         score: this.score,
@@ -1555,6 +1623,8 @@ export class GameSystem extends createSystem({}) {
       }),
       press: (id) => this.press(id),
       battleLog: () => [...this.battleScene.log],
+      chaseLog: () => [...this.chaseScene.log],
+      musicLog: () => [...this.music.log],
       where: () => {
         this.world.camera.getWorldPosition(this.v);
         const r = this.theater.root.position;
@@ -1597,7 +1667,7 @@ export class GameSystem extends createSystem({}) {
       targetPoses: (dx, dy) =>
         this.level.hands.map((h) => ({ ...h, pos: [h.pos[0] + dx, h.pos[1] + dy, h.pos[2]] as [number, number, number] })),
       reset: () => {
-        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0, battle: false };
+        this.progress = { level: 0, found: [], gentle: false, dailyDay: -1, streak: 0, puzzle: 0, chase: false, battle: false };
         saveProgress(this.progress);
         this.applyContrast();
         this.enter('intro');

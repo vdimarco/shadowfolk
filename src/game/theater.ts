@@ -297,6 +297,9 @@ uniform vec4 uRedEye;        // the wolf's eye: x, y, radius, glow (0..1)
 uniform vec4 uFlash;         // battle: hurt (red), hit (gold), ward, web
 uniform vec4 uFxPos;         // ward center xy, web center zw
 uniform float uFlames;       // battle: lamp flames left (-1 = hidden)
+uniform float uChase;        // the chase: 0..1, the journey scrolls on the paper
+uniform float uScroll;       // the chase: how far the journey has scrolled (meters)
+uniform float uDark;         // the chase: a storm darkens the paper (0..1)
 varying vec2 vUv;
 
 float cov(sampler2D t, vec2 uv) { return 1.0 - texture2D(t, uv).r; }
@@ -321,6 +324,28 @@ void main() {
   float edgeD = min(e.x, e.y);
   float border = smoothstep(0.0025, 0.0, abs(edgeD - 0.03)) + 0.6 * smoothstep(0.0015, 0.0, abs(edgeD - 0.04));
   col = mix(col, mix(vec3(0.85, 0.6, 0.25), vec3(0.6, 0.4, 0.1), uContrast) * lit * 1.1, border * 0.8);
+
+  // the chase: a journey scrolls past in faint ink (far hills, near pines,
+  // the ground with its dashes rushing by, and wind streaks)
+  if (uChase > 0.001) {
+    vec3 inkC = mix(vec3(0.2, 0.09, 0.26), vec3(0.05), uContrast) * lit;
+    float gy = -0.3;
+    float far = -0.08 + 0.09 * noise(vec2(p.x * 2.4 + uScroll * 0.7, 3.0)) + 0.025 * sin(p.x * 9.0 + uScroll * 2.2);
+    float hills = smoothstep(0.004, -0.004, p.y - far) * step(gy, p.y);
+    float xs = (p.x + uScroll * 1.4) * 4.0;
+    float cellT = floor(xs);
+    float fx = fract(xs) - 0.5;
+    float th = 0.1 + 0.12 * hash(vec2(cellT, 7.0));
+    float hy = (p.y - gy) / th;
+    float pine = step(hash(vec2(cellT, 2.0)), 0.55) * step(0.0, hy) * step(hy, 1.0) * step(abs(fx), 0.32 * (1.0 - hy) + 0.02);
+    float ground = smoothstep(0.003, -0.003, p.y - gy) * step(-0.5, p.y);
+    float dash = step(0.55, fract((p.x + uScroll * 2.2) * 6.0)) * step(abs(p.y - (gy - 0.04)), 0.004);
+    float row = floor(p.y * 70.0);
+    float wind = step(0.93, hash(vec2(row, 1.0))) * step(0.8, fract(p.x * 1.3 + uScroll * (3.0 + hash(vec2(row, 4.0)) * 2.0) + hash(vec2(row, 9.0)))) * step(-0.2, p.y) * 0.5;
+    col = mix(col, inkC, (hills * 0.13 + pine * 0.26 + ground * 0.32 + wind * 0.25) * uChase);
+    col = mix(col, vec3(1.0, 0.9, 0.7) * lit, dash * 0.5 * uChase);
+    col *= 1.0 - uDark * 0.5 * uChase;
+  }
 
   // ink overlay (text, book)
   vec4 ink = texture2D(uInk, vUv);
@@ -575,6 +600,9 @@ export class Theater {
         uFlash: { value: new Vector4(0, 0, 0, 0) },
         uFxPos: { value: new Vector4(0, 0, 0, 0) },
         uFlames: { value: -1 },
+        uChase: { value: 0 },
+        uScroll: { value: 0 },
+        uDark: { value: 0 },
       },
     });
     const wall = new Mesh(new PlaneGeometry(WALL_W, WALL_H), this.wallMat);
