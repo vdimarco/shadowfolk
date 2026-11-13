@@ -168,7 +168,7 @@ TODO: name, email, role for each member.
 
 - Playable build: https://shadowfolk.vercel.app
 - Send it to a Quest from any phone or computer: https://shadowfolk.vercel.app/quest (Meta Web Launch)
-- Video: https://youtu.be/hYi-IIQHwPE
+- Video: https://youtu.be/HJrWuZwFKZw
 - Always the latest video: https://shadowfolk.vercel.app/video (a redirect set in `vercel.json`; change its `destination` when a new video is uploaded)
 - Meta VR competition release channel: https://www.meta.com/s/8Q43XSCZ7
 
