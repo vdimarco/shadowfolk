@@ -190,8 +190,8 @@ Shadowfolk is a seated, hands-only VR game for Meta Quest. A lamp is behind you,
 Play in the Meta Quest Browser: https://shadowfolk.vercel.app
 Source: https://github.com/vdimarco/shadowfolk
 
-Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competition 2026. The gameplay was recorded in IWER, the WebXR emulator in Meta's Immersive Web SDK, as an emulated Meta Quest 3 with scripted hand poses.
+Built with the Immersive Web SDK (WebXR) for the Meta VR Start Developer Competition 2026. The gameplay was recorded in IWER, the WebXR emulator in Meta's Immersive Web SDK, as an emulated Meta Quest 3 with scripted hand poses. The 13-second opening was animated with AI (Higgsfield) from frames rendered in the game; everything after it is real gameplay.
 
 Visibility: Public. Category: Gaming.
 
-To rebuild the video: make two 5-second 16:9 opening shots, then run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `XR=1 npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` (XR=1 records inside the IWER emulator) then `npx tsx tools/render-score.mts https://localhost:4173/ <frames-dir>/events.json 8.6 <seconds> score.wav` for the game's own score, and `python3 tools/assemble-video.py shotA.mp4 shotB.mp4 <frames-dir> out.mp4 score.wav`.
+To rebuild the video: render the start frames with `npx tsx tools/store-art.ts https://localhost:4173/ <dir> film`, animate each into a 5-second 16:9 shot with Higgsfield (Gemini Omni Flash, image-to-video), then run `npm run build`, serve `dist/` with `npx vite preview --port 4173`, then run `XR=1 npx tsx tools/capture-video.ts https://localhost:4173/ <frames-dir>` (XR=1 records inside the IWER emulator) then `npx tsx tools/render-score.mts https://localhost:4173/ <frames-dir>/events.json 13.0 <seconds> score.wav` for the game's own score, and `python3 tools/assemble-video.py shotA.mp4 shotB.mp4 shotC.mp4 <frames-dir> out.mp4 score.wav`.

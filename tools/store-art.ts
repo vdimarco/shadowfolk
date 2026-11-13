@@ -182,6 +182,44 @@ if (want('battle')) {
   await page.close();
 }
 
+// start frames for the video's opening shots (animated with Higgsfield): no text on the paper
+if (want('film')) {
+  const cam = { pos: [0, 1.2, 0.6] as [number, number, number], pitch: 0, fov: 50 };
+  // a: the player's hands make the bird; its shadow glows on the paper
+  {
+    const page = await open({ level: 10, found: ids, puzzle: 2, battle: true });
+    await adv(page, 20);
+    const bird = shift(level('bird').hands, [0, 0.0, -0.03]);
+    await adv(page, 40, () => bird);
+    await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c, ''), cam);
+    await adv(page, 10, () => bird);
+    await shot(page, 'film-a', 1920, 1080);
+    await page.close();
+  }
+  // b: the bird wakes on the paper, seen from further back so it has room to fly out
+  {
+    const page = await open({ level: 4, found: ids.slice(0, 4), puzzle: 0, battle: false });
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 40);
+    const poses = level('bird').hands;
+    await until(page, (s) => s.state === 'wake', 300, () => poses);
+    await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c, ''), { pos: [0, 1.3, 1.25], pitch: 2, fov: 55 });
+    await adv(page, 24, () => null);
+    await shot(page, 'film-b', 1920, 1080);
+    await page.close();
+  }
+  // c: the Ink Wolf alone on the paper
+  {
+    const page = await open({ level: 10, found: ids, puzzle: 2, battle: false });
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, 30);
+    await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c, ''), cam);
+    await adv(page, 20);
+    await shot(page, 'film-c', 1920, 1080);
+    await page.close();
+  }
+}
+
 // covers: the title inked on the paper (no other text), the hands making the bird, the Ink Wolf facing it
 if (want('cover')) {
   const sizes: [string, number, number, { pos: [number, number, number]; pitch: number; fov: number }][] = [
