@@ -303,12 +303,13 @@ async function playBattle() {
   const battleT0 = [...log0].reverse().find((e) => e.type === 'battle')?.t ?? 0;
   const nLog0 = log0.length;
   await hold(1.6);
-  const attacks = ['bird', 'dog', 'owl', 'crocodile', 'butterfly', 'dog', 'hare', 'crocodile', 'fox', 'dog', 'bird', 'crocodile'];
+  const attacks = ['bird', 'dog', 'hare', 'crocodile', 'bird', 'dog', 'hare', 'crocodile', 'dog', 'bird', 'crocodile', 'dog'];
   const firstSay: Record<string, string> = {
     bird: 'Make a shape and hold it: the creature flies at the wolf.',
     dog: 'The dog and the crocodile hit twice as hard.',
   };
-  let a = 0, windups = 0, hurtShown = false, healed = false, webbed = false;
+  // the spider is retired from the story, so there is no web
+  let a = 0, windups = 0, hurtShown = false, healed = false, webbed = true;
   for (let n = 0; n < 40; n++) {
     const bs = lastInfo.battle;
     if (!bs || bs.state !== 'fight') break;
@@ -438,7 +439,7 @@ try {
   }
 
   /** Played off camera to keep the video under three minutes. */
-  const offCamera = new Set(['hare', 'deer', 'fox', 'spider']);
+  const offCamera = new Set(['hare', 'deer']);
   if (!ONLY_PUZZLES) {
     for (const lv of LEVELS) {
       recording = !offCamera.has(lv.id);

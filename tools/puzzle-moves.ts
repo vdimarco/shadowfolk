@@ -73,3 +73,67 @@ export function fliesPose(t: number, p = { period: 9, xr: 0.32, xl: -0.16, yTop:
     },
   ];
 }
+
+// ------------------------------------------------------------ shadow tools
+
+/** Theater-space hand position whose shadow falls at wall point (wx, wy). */
+export function handAt(wx: number, wy: number, z = -0.42): [number, number, number] {
+  const t = (-1.3 - 0.2) / (z - 0.2);
+  return [wx / t, (wy + 0.3) / t - 0.3, z];
+}
+const flat = { thumb: { out: 0.05, opp: 0 }, index: { splay: 2 }, middle: { splay: 0 }, ring: { splay: -2 }, pinky: { splay: -4 } };
+const spread = { thumb: { out: 0.9, opp: 0 }, index: { splay: 16 }, middle: { splay: 0 }, ring: { splay: -14 }, pinky: { splay: -28 } };
+const cup = { thumb: { out: 0.2 }, index: { curl: 0.5, splay: 2 }, middle: { curl: 0.5 }, ring: { curl: 0.5, splay: -2 }, pinky: { curl: 0.5, splay: -4 } };
+const fist = { thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } };
+
+/**
+ * The Bowl: a cupped hand, palm up, waits under the cloud, carries the rain
+ * to the high cup on the right, turns over to pour, and comes back.
+ */
+export function bowlPose(t: number, p = { period: 12 }): HandPose[] {
+  const c = t % p.period;
+  const A = handAt(-0.3, -0.12), B = handAt(0.54, 0.2);
+  let k = 0, roll = 70;
+  if (c < 6) k = 0;
+  else if (c < 8.5) k = ease((c - 6) / 2.5);
+  else if (c < 10) {
+    k = 1;
+    roll = lerp(70, -60, (c - 8.5) / 0.6);
+  } else {
+    k = 1 - ease((c - 10) / 2);
+    roll = lerp(-60, 70, (c - 10) / 0.5);
+  }
+  return [{ hand: 'right', pos: [lerp(A[0], B[0], k), lerp(A[1], B[1], k), A[2]], rot: [roll, 0, 90], ...cup }];
+}
+
+/** The Pearls: spread fingers held as a tilted sieve under the cloud, sloping down toward the shell. */
+export function pearlsPose(t: number): HandPose[] {
+  const k = ease(t / 1.5);
+  return [{ hand: 'right', pos: [lerp(0.25, -0.06, k), lerp(-0.5, -0.25, k), -0.42], rot: [0, 0, lerp(0, 58, k)], ...spread }];
+}
+
+/** The Frozen Cloud: a fist knocks the ice three times, then the hand opens into a slide. */
+export function icePose(t: number): HandPose[] {
+  const ice = handAt(-0.38, -0.13);
+  if (t < 3.6) {
+    // knock: in for 0.6 s, out for 0.6 s
+    const c = t % 1.2;
+    const k = c < 0.6 ? ease(c / 0.3) : 1 - ease((c - 0.6) / 0.3);
+    return [{ hand: 'left', pos: [ice[0], lerp(ice[1] - 0.12, ice[1], k), ice[2]], ...fist }];
+  }
+  return [{ hand: 'right', pos: [-0.12, -0.22, -0.42], rot: [0, 0, 54], ...flat }];
+}
+
+/** The Moon Garden: knock twice, then a sieve (right) over a slide (left) sorts pearls from rain. */
+export function gardenPose(t: number): HandPose[] {
+  const ice = handAt(-0.2, -0.13);
+  if (t < 2.4) {
+    const c = t % 1.2;
+    const k = c < 0.6 ? ease(c / 0.3) : 1 - ease((c - 0.6) / 0.3);
+    return [{ hand: 'left', pos: [ice[0], lerp(ice[1] - 0.12, ice[1], k), ice[2]], ...fist }];
+  }
+  return [
+    { hand: 'right', pos: [-0.04, -0.25, -0.42], rot: [0, 0, 58], ...spread },
+    { hand: 'left', pos: [0.0, -0.34, -0.45], rot: [0, 0, -62], ...flat },
+  ];
+}

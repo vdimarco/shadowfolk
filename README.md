@@ -34,7 +34,7 @@ The site also has a web app manifest and icons. If it is later packaged for the 
 - The matcher compares your shadow with the target. It ignores position and size, and it accepts mirrored shapes, so left-handed players get the same game.
 - `src/game/theater.ts`: the paper wall shader, the room, and the button tray.
 - `src/game/game-system.ts`: hand tracking, game states, the creature animations, and the Shadow Book.
-- `src/game/puzzles.ts`: chapter three shadow puzzles (rain into a cup, fireflies into a jar). The player's shadow is solid ground on the paper. `tools/test-puzzles.ts` checks them with drawn shadows.
+- `src/game/puzzles.ts` and `src/game/tools.ts`: chapter three, shadow tools. The player's shadow is solid on the paper, and each hand's shape (read from its joints) is a tool: slide, bowl, sieve or stone. Six puzzles (rain, bowl, fireflies, pearls, frozen cloud, moon garden). `tools/test-puzzles.ts` checks them with drawn shadows; `tools/plan-tools.ts` solves them with real hand poses.
 - `src/game/battle.ts` and `src/game/battle-scene.ts`: chapter four, the Ink Wolf spell battle. Every creature the player has found is a spell. `tools/test-battle.ts` plays whole fights; `tools/preview-wolf.ts` draws the wolf to a PNG.
 - `src/game/world.ts`: the open-air night theater around the paper (sky, moon, pines, stage, curtains, lanterns, fireflies).
 - `src/game/daily.ts`: a new shape each day from a date seed. The book keeps a daily streak.

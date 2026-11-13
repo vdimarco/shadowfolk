@@ -8,8 +8,8 @@
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { HandPose } from '../src/game/hand-model.js';
-import { LEVELS } from '../src/game/levels.js';
-import { fliesPose, rainPose } from './puzzle-moves.js';
+import { ALL_LEVELS, LEVELS } from '../src/game/levels.js';
+import { bowlPose, fliesPose, gardenPose, icePose, pearlsPose, rainPose } from './puzzle-moves.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -21,7 +21,7 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const ids = LEVELS.map((l) => l.id);
-const level = (id: string) => LEVELS.find((l) => l.id === id)!;
+const level = (id: string) => ALL_LEVELS.find((l) => l.id === id)!;
 const shift = (hs: HandPose[], d: [number, number, number]) => hs.map((h) => ({ ...h, pos: [h.pos[0] + d[0], h.pos[1] + d[1], h.pos[2] + d[2]] as [number, number, number] }));
 
 type Progress = { level: number; found: string[]; puzzle: number; battle: boolean };
@@ -91,14 +91,14 @@ async function shot(page: any, name: string, w = 2560, h = 1440) {
 }
 const want = (n: string) => !only || only.split(',').includes(n);
 
-// 1. a creature wakes: the owl, eye open, the player's hands still up
+// 1. a creature wakes: the deer, eye open, the player's hands still up
 if (want('wake')) {
-  const page = await open({ level: 8, found: ids.slice(0, 8), puzzle: 0, battle: false });
+  const page = await open({ level: 5, found: ids.slice(0, 5), puzzle: 0, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 10);
-  const owl = shift(level('owl').hands, [0.0, 0.02, 0]);
-  await until(page, (s) => s.state === 'wake', 300, () => owl);
-  await adv(page, 30, () => owl);
+  const deer = shift(level('deer').hands, [0.0, 0.02, 0]);
+  await until(page, (s) => s.state === 'wake', 300, () => deer);
+  await adv(page, 30, () => deer);
   await shot(page, 'shot-1-wake');
   await page.close();
 }
@@ -118,7 +118,7 @@ if (want('magic')) {
 
 // the 3D step-out: the creature lifts off the paper toward the player
 if (want('step')) {
-  for (const [lv, id] of [[6, 'fox'], [4, 'bird'], [5, 'deer']] as [number, string][]) {
+  for (const [lv, id] of [[3, 'dog'], [4, 'bird'], [5, 'deer']] as [number, string][]) {
     const page = await open({ level: lv, found: ids.slice(0, lv), puzzle: 0, battle: false });
     await page.evaluate(() => (window as any).__shadowfolk.press('next'));
     await adv(page, 40);
@@ -132,7 +132,7 @@ if (want('step')) {
 
 // the Shadow Book with every creature found
 if (want('book')) {
-  const page = await open({ level: 10, found: ids, puzzle: 2, battle: true });
+  const page = await open({ level: 6, found: ids, puzzle: 6, battle: true });
   await adv(page, 20);
   await page.evaluate(() => (window as any).__shadowfolk.press('book'));
   await adv(page, 20);
@@ -142,16 +142,37 @@ if (want('book')) {
 
 // 3. the rain puzzle: the hand and arm shadow is a slide
 if (want('rain')) {
-  const page = await open({ level: 10, found: ids, puzzle: 0, battle: false });
+  const page = await open({ level: 6, found: ids, puzzle: 0, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 30 * 7, (t) => rainPose(t));
   await shot(page, 'shot-3-rain');
   await page.close();
 }
 
+// the shadow tools: each puzzle at a telling moment
+if (want('tools') || /shot-(9|1[0-2])|ghost-check/.test(only ?? '')) {
+  const scenes: [string, number, (t: number) => HandPose[], number][] = [
+    ['shot-9-bowl', 1, bowlPose, 7.6],
+    ['shot-10-pearls', 3, pearlsPose, 6],
+    ['shot-11-ice', 4, icePose, 1.75],
+    ['shot-12-garden', 5, gardenPose, 6.5],
+    // a check, not a store image: a flat hand in the Bowl puzzle is a ghost
+    ['ghost-check', 1, rainPose, 4],
+  ];
+  for (const [name, puzzle, pose, at] of scenes) {
+    if (only && !only.split(',').includes('tools') && !only.split(',').includes(name)) continue;
+    if (name === 'ghost-check' && !only?.split(',').includes(name)) continue;
+    const page = await open({ level: 6, found: ids, puzzle, battle: false });
+    await page.evaluate(() => (window as any).__shadowfolk.press('next'));
+    await adv(page, Math.round(30 * at), (t) => pose(t));
+    await shot(page, name);
+    await page.close();
+  }
+}
+
 // 4. the fireflies puzzle
 if (want('flies')) {
-  const page = await open({ level: 10, found: ids, puzzle: 1, battle: false });
+  const page = await open({ level: 6, found: ids, puzzle: 2, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 30 * 4.5, (t) => fliesPose(t));
   await shot(page, 'shot-4-fireflies');
@@ -160,7 +181,7 @@ if (want('flies')) {
 
 // 5. the Ink Wolf: a dog spell lands, and a second shape is ready
 if (want('battle')) {
-  const page = await open({ level: 10, found: ids, puzzle: 2, battle: false });
+  const page = await open({ level: 6, found: ids, puzzle: 6, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 20);
   const bird = shift(level('bird').hands, [-0.05, 0.02, 0]);
@@ -187,7 +208,7 @@ if (want('film')) {
   const cam = { pos: [0, 1.2, 0.6] as [number, number, number], pitch: 0, fov: 50 };
   // a: the player's hands make the bird; its shadow glows on the paper
   {
-    const page = await open({ level: 10, found: ids, puzzle: 2, battle: true });
+    const page = await open({ level: 6, found: ids, puzzle: 6, battle: true });
     await adv(page, 20);
     const bird = shift(level('bird').hands, [0, 0.0, -0.03]);
     await adv(page, 40, () => bird);
@@ -210,7 +231,7 @@ if (want('film')) {
   }
   // c: the Ink Wolf alone on the paper
   {
-    const page = await open({ level: 10, found: ids, puzzle: 2, battle: false });
+    const page = await open({ level: 6, found: ids, puzzle: 6, battle: false });
     await page.evaluate(() => (window as any).__shadowfolk.press('next'));
     await adv(page, 30);
     await page.evaluate((c: any) => (window as any).__shadowfolk.art(true, c, ''), cam);
@@ -229,7 +250,7 @@ if (want('cover')) {
     ['cover-portrait', 1008, 1440, { pos: [0, 1.2, 0.51], pitch: 0, fov: 70 }],
     ['cover-mini', 1080, 360, { pos: [0, 1.2, 1.13], pitch: 0, fov: 30 }],
   ];
-  const page = await open({ level: 10, found: ids, puzzle: 2, battle: false });
+  const page = await open({ level: 6, found: ids, puzzle: 6, battle: false });
   await page.evaluate(() => (window as any).__shadowfolk.press('next'));
   await adv(page, 20);
   const bird = shift(level('bird').hands, [-0.15, 0.0, -0.03]);

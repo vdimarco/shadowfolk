@@ -1,10 +1,12 @@
 /**
- * Chapter three: shadow puzzles. The player's shadow is solid on the paper.
+ * Chapter three: shadow puzzles. The player's shadow is solid on the paper,
+ * and each hand's shape is a tool (see tools.ts).
  * Pure 2D simulation in wall meters (origin at the wall center, +y up), so
  * Node tests can drive it with drawn masks. No Three.js, no DOM.
  */
 import type { HandPose } from './hand-model.js';
 import { GRID_H, GRID_W, WALL_H, WALL_W } from './silhouette.js';
+import type { Tool } from './tools.js';
 
 /** A hand and forearm held as a slide that fills the rain cup (planned in tools/plan-puzzles.ts). */
 export const RAIN_SOLUTION: HandPose = {
@@ -18,7 +20,7 @@ export const RAIN_SOLUTION: HandPose = {
   pinky: { splay: -4 },
 };
 
-export type PuzzleId = 'rain' | 'fireflies';
+export type PuzzleId = 'rain' | 'bowl' | 'fireflies' | 'pearls' | 'ice' | 'garden';
 
 export interface Dot {
   x: number;
@@ -29,6 +31,12 @@ export interface Dot {
   /** Fireflies: caught in the jar. */
   caught?: boolean;
   phase: number;
+  /** Tool puzzles: a pearl of light (round, heavy, bigger) instead of a raindrop. */
+  pearl?: boolean;
+  /** Held in a bowl: the hand index (0 right, 1 left), or -1. */
+  held?: number;
+  ox?: number;
+  oy?: number;
 }
 
 export interface PuzzleInfo {
@@ -36,20 +44,58 @@ export interface PuzzleInfo {
   name: string;
   hint: string;
   done: string;
+  /** Shown after a while with no luck. */
+  tip?: string;
+  /** The shapes that work in this puzzle; 'any' = every shadow counts. */
+  tools: Tool[] | 'any';
 }
 
 export const PUZZLES: PuzzleInfo[] = [
   {
     id: 'rain',
     name: 'The Rain',
-    hint: 'Your shadow is solid. Make a slide with your hand and arm, and guide the rain into the cup.',
+    hint: 'Your shadow is solid. Hold your hand flat to make a slide, and guide the rain into the cup.',
     done: 'The cup is full. The paper smells of rain.',
+    tools: ['slide'],
+  },
+  {
+    id: 'bowl',
+    name: 'The Bowl',
+    hint: 'Cup your hand, palm up, to catch the rain. Carry it to the high cup and turn your hand over.',
+    done: 'You carried the rain in your hand.',
+    tip: 'Tip: hold the bowl still under the cloud until it is full, then lift it over the cup and turn it over.',
+    tools: ['bowl'],
   },
   {
     id: 'fireflies',
     name: 'The Fireflies',
     hint: 'Fireflies fly away from shadow. Herd them into the jar with your hands.',
     done: 'Every firefly glows in the jar.',
+    tip: 'Tip: sweep an open hand from right to left, then lay it flat and press down over the jar.',
+    tools: 'any',
+  },
+  {
+    id: 'pearls',
+    name: 'The Pearls',
+    hint: 'Spread your fingers to make a sieve: rain falls through, pearls roll off. Roll the pearls to the shell.',
+    done: 'Rain in the cup, pearls in the shell.',
+    tip: 'A pearl in the cup spills it. Hold the sieve under the cloud, tilted down toward the shell.',
+    tools: ['sieve'],
+  },
+  {
+    id: 'ice',
+    name: 'The Frozen Cloud',
+    hint: 'The cloud is frozen. Knock the ice with your fist, then make a slide for the rain.',
+    done: 'The ice is gone and the cup is full.',
+    tools: ['stone', 'slide'],
+  },
+  {
+    id: 'garden',
+    name: 'The Moon Garden',
+    hint: 'Free the cloud, water the seed, and fill the lantern with pearls. Every tool works here.',
+    done: 'The moon flower opens.',
+    tip: 'Tip: a sieve over a slide sorts them: pearls roll one way, rain slides the other.',
+    tools: ['slide', 'bowl', 'sieve', 'stone'],
   },
 ];
 
@@ -101,39 +147,204 @@ function shadowNormal(mask: Uint8Array, x: number, y: number, reach: number, out
 let seed = 1;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 
-// ------------------------------------------------------------------ rain
+// ------------------------------------------------------------ tool puzzles
 
-export class RainPuzzle {
-  readonly cloud: { x: number; y: number; w: number };
-  readonly cup: { x: number; y: number; w: number; h: number };
-  readonly goal: number;
+/** One hand as the tool puzzles see it. */
+export interface HandInput {
+  /** This hand's whole shadow (forearm included) on the grid. */
+  mask: Uint8Array;
+  /** The tool it makes; null = no hand, or a shape this puzzle does not allow (a ghost, not solid). */
+  tool: Tool | null;
+  /** Palm center on the wall (meters) and its velocity (meters per second). */
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** +1 palm up, -1 palm down. */
+  palmUp: number;
+}
+
+export interface Target {
+  /** What it collects. */
+  kind: 'rain' | 'pearl';
+  style: 'cup' | 'pot' | 'shell' | 'lantern';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  goal: number;
+  count: number;
+  /** A pearl that falls in knocks the rain out. */
+  spill?: boolean;
+}
+
+export interface Cloud {
+  x: number;
+  y: number;
+  w: number;
+}
+
+interface Layout {
+  cloud: Cloud;
+  /** Knocks with a fist to break the ice (0: not frozen). */
+  ice: number;
+  /** Every n-th thing from the cloud is a pearl (0: rain only). */
+  pearlEvery: number;
+  targets: Target[];
+  /** A drawn shelf under a high target (scenery only). */
+  shelf?: { x: number; y: number; w: number };
+}
+
+function layoutFor(id: PuzzleId, g: boolean): Layout {
+  const T = (kind: Target['kind'], style: Target['style'], x: number, y: number, w: number, h: number, goal: number, gentleGoal: number, spill = false): Target => ({
+    kind, style, x, y, w: g ? w + 0.06 : w, h, goal: g ? gentleGoal : goal, count: 0, spill,
+  });
+  switch (id) {
+    case 'bowl':
+      return {
+        cloud: { x: -0.42, y: 0.07, w: 0.16 }, ice: 0, pearlEvery: 0,
+        targets: [T('rain', 'cup', 0.42, 0.04, 0.2, 0.12, 10, 6)],
+        shelf: { x: 0.42, y: -0.025, w: 0.32 },
+      };
+    case 'pearls':
+      return {
+        cloud: { x: -0.24, y: 0.07, w: 0.14 }, ice: 0, pearlEvery: 3,
+        targets: [T('rain', 'cup', -0.24, -0.42, 0.22, 0.12, 10, 6, true), T('pearl', 'shell', 0.56, -0.44, 0.28, 0.12, 4, 3)],
+      };
+    case 'ice':
+      return {
+        cloud: { x: -0.38, y: 0.07, w: 0.18 }, ice: g ? 1 : 3, pearlEvery: 0,
+        targets: [T('rain', 'cup', 0.32, -0.42, 0.24, 0.12, 10, 6)],
+      };
+    case 'garden':
+      return {
+        cloud: { x: -0.2, y: 0.07, w: 0.14 }, ice: g ? 1 : 2, pearlEvery: 3,
+        targets: [T('rain', 'pot', -0.52, -0.4, 0.2, 0.12, 8, 5, true), T('pearl', 'lantern', 0.58, -0.42, 0.18, 0.16, 3, 2)],
+      };
+    default:
+      return {
+        cloud: { x: -0.4, y: 0.06, w: 0.18 }, ice: 0, pearlEvery: 0,
+        targets: [T('rain', 'cup', 0.3, -0.42, 0.24, 0.12, 12, 8)],
+      };
+  }
+}
+
+/** Pearl radius on the paper (meters): too big to fall between spread fingers. */
+export const PEARL_R = 0.02;
+/** How many drops one bowl can hold. */
+const BOWL_CAP = 10;
+const MAX_DOTS = 28;
+
+/**
+ * The tool puzzles: rain (and pearls) fall from a cloud, maybe frozen, onto
+ * the player's shadow tools, and must reach their targets.
+ */
+export class ToolPuzzle {
+  readonly id: PuzzleId;
+  readonly cloud: Cloud;
+  readonly targets: Target[];
+  readonly shelf?: { x: number; y: number; w: number };
   readonly drops: Dot[] = [];
-  collected = 0;
+  /** Knocks left before the ice breaks (0: free). */
+  ice: number;
+  readonly iceMax: number;
+  /** Sounds and moments for the game to play, cleared by the game each frame. */
+  readonly events: string[] = [];
+  private pearlEvery: number;
+  private spawned = 0;
   private spawnIn = 0;
   private n: [number, number] = [0, 1];
-  static readonly MAX = 24;
+  private rainMask: Uint8Array = new Uint8Array(GRID_W * GRID_H);
+  private pearlMask: Uint8Array = new Uint8Array(GRID_W * GRID_H);
+  private touchingIce = false;
+  private knockWait = 0;
+  private one: HandInput[] = [{ mask: this.rainMask, tool: 'slide', x: 0, y: 0, vx: 0, vy: 0, palmUp: 0 }];
+  static readonly MAX = MAX_DOTS;
 
-  constructor(gentle: boolean, s = 7, layout: { cloudX?: number; cupX?: number; cupW?: number } = {}) {
+  constructor(id: PuzzleId | boolean, gentle?: boolean | number, s = 7, layout: { cloudX?: number; cupX?: number; cupW?: number } = {}) {
+    // old form: new ToolPuzzle(gentle, seed, layout) is the rain puzzle
+    if (typeof id === 'boolean') {
+      s = typeof gentle === 'number' ? gentle : s;
+      gentle = id;
+      id = 'rain';
+    }
+    this.id = id;
     seed = s;
-    this.cloud = { x: layout.cloudX ?? -0.4, y: 0.06, w: 0.18 };
-    const w = layout.cupW ?? 0.24;
-    this.cup = { x: layout.cupX ?? 0.3, y: -0.42, w: gentle ? w + 0.06 : w, h: 0.12 };
-    this.goal = gentle ? 8 : 12;
-    for (let i = 0; i < RainPuzzle.MAX; i++) this.drops.push({ x: 0, y: 0, vx: 0, vy: 0, alive: false, phase: 0 });
+    const l = layoutFor(id, !!gentle);
+    if (layout.cloudX !== undefined) l.cloud.x = layout.cloudX;
+    if (layout.cupX !== undefined) l.targets[0].x = layout.cupX;
+    if (layout.cupW !== undefined) l.targets[0].w = gentle ? layout.cupW + 0.06 : layout.cupW;
+    this.cloud = l.cloud;
+    this.targets = l.targets;
+    this.shelf = l.shelf;
+    this.ice = this.iceMax = l.ice;
+    this.pearlEvery = l.pearlEvery;
+    for (let i = 0; i < MAX_DOTS; i++) this.drops.push({ x: 0, y: 0, vx: 0, vy: 0, alive: false, phase: 0, held: -1 });
   }
 
+  /** The first target (the cup in the rain puzzle). */
+  get cup() {
+    return this.targets[0];
+  }
+  get collected() {
+    return this.targets[0].count;
+  }
+  get goal() {
+    return this.targets[0].goal;
+  }
   get solved() {
-    return this.collected >= this.goal;
+    return this.targets.every((t) => t.count >= t.goal);
+  }
+  /** Where the ice sits around the cloud. */
+  get iceBox() {
+    const c = this.cloud;
+    return { x0: c.x - c.w / 2 - 0.06, x1: c.x + c.w / 2 + 0.06, y0: c.y - 0.04, y1: c.y + 0.1 };
+  }
+  heldBy(h: number) {
+    let n = 0;
+    for (const d of this.drops) if (d.alive && d.held === h) n++;
+    return n;
   }
 
-  step(dt: number, mask: Uint8Array) {
-    // a new drop every 0.22 s from under the cloud
+  /** `input`: a single mask (one slide, as in the first puzzle) or both hands with their tools. */
+  step(dt: number, input: Uint8Array | HandInput[]) {
+    let hands: HandInput[];
+    if (input instanceof Uint8Array) {
+      this.one[0].mask = input;
+      hands = this.one;
+      this.rainMask = input;
+      this.pearlMask = input;
+    } else {
+      hands = input;
+      if (this.rainMask === this.pearlMask) {
+        this.rainMask = new Uint8Array(GRID_W * GRID_H);
+        this.pearlMask = new Uint8Array(GRID_W * GRID_H);
+      }
+      this.rainMask.fill(0);
+      this.pearlMask.fill(0);
+      for (const h of hands) {
+        if (h.tool !== 'slide' && h.tool !== 'stone' && h.tool !== 'sieve') continue;
+        const both = h.tool !== 'sieve';
+        const m = h.mask;
+        for (let i = 0; i < m.length; i++) {
+          if (!m[i]) continue;
+          this.pearlMask[i] = 1;
+          if (both) this.rainMask[i] = 1;
+        }
+      }
+    }
+    this.updateIce(dt, hands);
+
+    // a new drop (or pearl) every 0.22 s from under the cloud, once it is free
     this.spawnIn -= dt;
-    if (this.spawnIn <= 0) {
+    if (this.spawnIn <= 0 && this.ice === 0) {
       this.spawnIn = 0.22;
       const d = this.drops.find((x) => !x.alive);
       if (d) {
+        this.spawned++;
         d.alive = true;
+        d.pearl = this.pearlEvery > 0 && this.spawned % this.pearlEvery === 0;
+        d.held = -1;
         d.x = this.cloud.x + (rnd() - 0.5) * this.cloud.w;
         d.y = this.cloud.y - 0.03;
         d.vx = 0;
@@ -141,57 +352,159 @@ export class RainPuzzle {
         d.phase = rnd();
       }
     }
+
+    let caught = false;
+    let poured = false;
+    for (const d of this.drops) {
+      if (!d.alive) continue;
+      const hi = d.held ?? -1;
+      if (hi >= 0) {
+        const h = hands[hi];
+        if (!h || h.tool !== 'bowl' || h.palmUp < -0.25) {
+          // the bowl opens or turns over: pour
+          d.held = -1;
+          d.vx = (h?.vx ?? 0) * 0.5;
+          d.vy = Math.min(0, (h?.vy ?? 0) * 0.5);
+          poured = true;
+        } else {
+          // the water pools in the middle of the bowl and rides along with it
+          d.phase += dt;
+          const px = Math.cos(d.phase * 2.1 + d.x * 40) * 0.028;
+          const py = 0.012 + Math.sin(d.phase * 1.7) * 0.01;
+          const k = Math.min(1, dt * 2.5);
+          d.ox = (d.ox ?? 0) + (px - (d.ox ?? 0)) * k;
+          d.oy = (d.oy ?? 0) + (py - (d.oy ?? 0)) * k;
+          d.x = h.x + d.ox;
+          d.y = h.y + d.oy;
+          d.vx = h.vx;
+          d.vy = h.vy;
+          continue;
+        }
+      }
+      this.move(d, dt);
+      // a bowl catches what falls into it
+      for (let i = 0; i < hands.length; i++) {
+        const h = hands[i];
+        if (h.tool !== 'bowl' || h.palmUp < -0.15) continue;
+        if (!solidAt(h.mask, d.x, d.y) || this.heldBy(i) >= BOWL_CAP) continue;
+        d.held = i;
+        d.ox = d.x - h.x;
+        d.oy = d.y - h.y;
+        caught = true;
+        break;
+      }
+      if (d.held !== undefined && d.held >= 0) continue;
+      this.collect(d);
+    }
+    if (caught) this.events.push('catch');
+    if (poured) this.events.push('pour');
+  }
+
+  private hit(mask: Uint8Array, x: number, y: number, r: number) {
+    if (solidAt(mask, x, y)) return true;
+    if (r <= 0) return false;
+    return solidAt(mask, x + r, y) || solidAt(mask, x - r, y) || solidAt(mask, x, y - r) || solidAt(mask, x, y + r) ||
+      solidAt(mask, x + r * 0.7, y - r * 0.7) || solidAt(mask, x - r * 0.7, y - r * 0.7);
+  }
+
+  private move(d: Dot, dt: number) {
+    const mask = d.pearl ? this.pearlMask : this.rainMask;
+    const r = d.pearl ? PEARL_R : 0;
     const G = -0.9;
     const sub = 3;
     const h = dt / sub;
-    for (const d of this.drops) {
-      if (!d.alive) continue;
-      for (let s = 0; s < sub; s++) {
-        d.vy += G * h;
-        const nx = d.x + d.vx * h;
-        const ny = d.y + d.vy * h;
-        if (solidAt(mask, nx, ny)) {
-          // land on the shadow and slide along it
-          shadowNormal(mask, d.x, d.y, 0.04, this.n);
-          const vn = d.vx * this.n[0] + d.vy * this.n[1];
-          if (vn < 0) {
-            d.vx -= this.n[0] * vn * 1.15;
-            d.vy -= this.n[1] * vn * 1.15;
-          }
-          d.vx *= 0.985;
-          d.vy *= 0.985;
-          // move along the surface with the new velocity; if that is blocked
-          // too (a curved edge), lift the drop out along the normal
-          const tx = d.x + d.vx * h;
-          const ty = d.y + d.vy * h;
-          if (!solidAt(mask, tx, ty)) {
-            d.x = tx;
-            d.y = ty;
-          } else {
-            d.x += this.n[0] * CELL_X * 0.5 + d.vx * h;
-            d.y += this.n[1] * CELL_Y * 0.5 + d.vy * h;
-          }
-        } else {
-          d.x = nx;
-          d.y = ny;
+    for (let s = 0; s < sub; s++) {
+      d.vy += G * h;
+      const nx = d.x + d.vx * h;
+      const ny = d.y + d.vy * h;
+      if (this.hit(mask, nx, ny, r)) {
+        // land on the shadow and slide (rain) or roll and bounce a little (pearls)
+        shadowNormal(mask, d.x, d.y, 0.04 + r, this.n);
+        const vn = d.vx * this.n[0] + d.vy * this.n[1];
+        if (vn < 0) {
+          const k = d.pearl ? 1.3 : 1.15;
+          d.vx -= this.n[0] * vn * k;
+          d.vy -= this.n[1] * vn * k;
         }
-      }
-      // drops on paper drift; they never get fast
-      const sp = Math.hypot(d.vx, d.vy);
-      if (sp > 0.38) {
-        d.vx *= 0.38 / sp;
-        d.vy *= 0.38 / sp;
-      }
-      const c = this.cup;
-      if (Math.abs(d.x - c.x) < c.w / 2 && d.y < c.y + c.h / 2 && d.y > c.y - c.h / 2) {
-        d.alive = false;
-        this.collected++;
-      } else if (d.y < -WALL_H / 2 - 0.05 || Math.abs(d.x) > WALL_W / 2 + 0.05) {
-        d.alive = false;
+        const f = d.pearl ? 0.995 : 0.985;
+        d.vx *= f;
+        d.vy *= f;
+        const tx = d.x + d.vx * h;
+        const ty = d.y + d.vy * h;
+        if (!this.hit(mask, tx, ty, r)) {
+          d.x = tx;
+          d.y = ty;
+        } else {
+          d.x += this.n[0] * CELL_X * 0.5 + d.vx * h;
+          d.y += this.n[1] * CELL_Y * 0.5 + d.vy * h;
+        }
+      } else {
+        d.x = nx;
+        d.y = ny;
       }
     }
+    // pearls bounce off the edges of the page and fall to its corners
+    const edge = WALL_W / 2 - 0.035 - r;
+    if (d.pearl && Math.abs(d.x) > edge) {
+      d.x = Math.sign(d.x) * edge;
+      d.vx = -d.vx * 0.3;
+    }
+    // drops on paper drift; they never get fast (pearls roll a bit faster)
+    const max = d.pearl ? 0.5 : 0.38;
+    const sp = Math.hypot(d.vx, d.vy);
+    if (sp > max) {
+      d.vx *= max / sp;
+      d.vy *= max / sp;
+    }
+  }
+
+  private collect(d: Dot) {
+    for (const t of this.targets) {
+      if (Math.abs(d.x - t.x) < t.w / 2 && d.y < t.y + t.h / 2 && d.y > t.y - t.h / 2) {
+        d.alive = false;
+        const kind = d.pearl ? 'pearl' : 'rain';
+        if (kind === t.kind) {
+          t.count++;
+          this.events.push(kind === 'pearl' ? 'pearl' : 'drop');
+        } else if (d.pearl && t.spill) {
+          t.count = Math.max(0, t.count - 3);
+          this.events.push('spill');
+        }
+        return;
+      }
+    }
+    if (d.y < -WALL_H / 2 - 0.05 || Math.abs(d.x) > WALL_W / 2 + 0.05) d.alive = false;
+  }
+
+  /** A fist knocks the ice: each new touch is one knock. */
+  private updateIce(dt: number, hands: HandInput[]) {
+    this.knockWait = Math.max(0, this.knockWait - dt);
+    if (this.ice <= 0) return;
+    const b = this.iceBox;
+    let touching = false;
+    for (const h of hands) {
+      if (h.tool !== 'stone') continue;
+      for (let y = b.y0; y <= b.y1 && !touching; y += CELL_Y) {
+        for (let x = b.x0; x <= b.x1; x += CELL_X) {
+          if (solidAt(h.mask, x, y)) {
+            touching = true;
+            break;
+          }
+        }
+      }
+    }
+    if (touching && !this.touchingIce && this.knockWait <= 0) {
+      this.ice--;
+      this.knockWait = 0.3;
+      this.events.push(this.ice === 0 ? 'free' : 'knock');
+      if (this.ice === 0) this.spawnIn = 0.4;
+    }
+    this.touchingIce = touching;
   }
 }
+
+/** The first puzzle under its old name: one slide, rain into the cup. */
+export const RainPuzzle = ToolPuzzle;
 
 // ------------------------------------------------------------- fireflies
 

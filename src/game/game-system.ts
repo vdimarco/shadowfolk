@@ -19,7 +19,8 @@ import {
   WALL_H,
   WALL_W,
 } from './silhouette.js';
-import { FireflyPuzzle, PUZZLES, RAIN_SOLUTION, RainPuzzle } from './puzzles.js';
+import { FireflyPuzzle, type HandInput, PEARL_R, PUZZLES, RAIN_SOLUTION, type Target, ToolPuzzle } from './puzzles.js';
+import { type Tool, TOOL_HOW, TOOL_NAMES, ToolTracker } from './tools.js';
 import { loadProgress, type Progress, saveProgress } from './storage.js';
 import { HandViz } from './hand-viz.js';
 import { SkinnedHands } from './skinned-hands.js';
@@ -105,9 +106,18 @@ export class GameSystem extends createSystem({}) {
   private activeMatcher: Matcher | null = null;
   private stuckShown = false;
   /** Chapter three: the running shadow puzzle. */
-  private rain: RainPuzzle | null = null;
+  private rain: ToolPuzzle | null = null;
   private flies: FireflyPuzzle | null = null;
   private puzzleMask = new Uint8Array(GRID_W * GRID_H);
+  /** Tool puzzles: each hand's own shadow, its tool, and where its palm is on the paper (0 right, 1 left). */
+  private handMasks = [new Uint8Array(GRID_W * GRID_H), new Uint8Array(GRID_W * GRID_H)];
+  private trackers = [new ToolTracker(), new ToolTracker()];
+  private handIn: HandInput[] = [0, 1].map((i) => ({ mask: this.handMasks[i], tool: null, x: 0, y: 0, vx: 0, vy: 0, palmUp: 0 }));
+  private palmPrev = [new Float32Array(3), new Float32Array(3)];
+  private palmTmp: [number, number] = [0, 0];
+  private toolKey = '';
+  /** Per hand (0 right, 1 left): '' = not in view, 'x' = a shape not allowed here, else the tool. */
+  private toolState = ['', ''];
   private puzzleCount = -1;
   private puzzleDoneAt = -1;
   private rainSolution = poseToJoints(RAIN_SOLUTION);
@@ -296,7 +306,10 @@ export class GameSystem extends createSystem({}) {
         u.uTargetAlpha.value = 0;
         u.uMeter.value = 0;
         u.uLiveAlpha.value = 1;
-        this.rain = info.id === 'rain' ? new RainPuzzle(this.progress.gentle) : null;
+        this.rain = info.id !== 'fireflies' ? new ToolPuzzle(info.id, this.progress.gentle) : null;
+        this.toolKey = '';
+        this.toolState[0] = this.toolState[1] = '';
+        for (const pp of this.palmPrev) pp[2] = 0;
         this.flies = info.id === 'fireflies' ? new FireflyPuzzle(this.progress.gentle) : null;
         u.uDotKind.value = this.flies ? 1 : 0;
         this.puzzleCount = -1;
@@ -665,6 +678,7 @@ export class GameSystem extends createSystem({}) {
     const renderer = this.world.renderer as WebGLRenderer;
     // in the puzzles the whole arm is the slide; elsewhere the arm fades to a stem
     this.theater.live.setFadeArm(this.state === 'puzzle' ? 0 : 1);
+    if (this.state !== 'puzzle' || !this.rain) this.theater.live.setGhost(false, false);
     this.theater.live.render(renderer, this.live);
 
     const area = this.present.left || this.present.right ? rasterize(this.live, this.mask) : 0;
@@ -831,36 +845,52 @@ export class GameSystem extends createSystem({}) {
   /** Chapter three: step the puzzle with the full shadow (forearm included) as solid ground. */
   private updatePuzzle(dt: number) {
     const u = this.theater.wallMat.uniforms;
-    if (this.present.left || this.present.right) rasterize(this.live, this.puzzleMask, false);
+    const r = this.rain;
+    if (r) this.updateTools(dt);
+    else if (this.present.left || this.present.right) rasterize(this.live, this.puzzleMask, false);
     else this.puzzleMask.fill(0);
-    const p = this.rain ?? this.flies;
-    if (!p) return;
-    p.step(dt, this.puzzleMask);
-    // hand the dots to the wall shader: x, y, radius, brightness
-    const dots = this.rain ? this.rain.drops : this.flies!.flies;
+    if (r) {
+      r.step(dt, this.handIn);
+      this.playPuzzleEvents();
+    } else if (this.flies) this.flies.step(dt, this.puzzleMask);
+    else return;
+    // hand the dots to the wall shader: x, y, radius, brightness (negative: a pearl)
+    const dots = r ? r.drops : this.flies!.flies;
     const arr = u.uDots.value as Float32Array;
     let n = 0;
     for (const d of dots) {
       if (!d.alive || n >= 32) continue;
-      const glow = this.flies ? 0.75 + 0.25 * Math.sin(d.phase * 2.3) : 1;
       arr[n * 4] = d.x;
       arr[n * 4 + 1] = d.y;
-      arr[n * 4 + 2] = this.flies ? 0.013 : 0.0105;
-      arr[n * 4 + 3] = glow;
+      if (r) {
+        arr[n * 4 + 2] = d.pearl ? PEARL_R * 1.05 : 0.0105;
+        arr[n * 4 + 3] = d.pearl ? -1 : 1;
+      } else {
+        arr[n * 4 + 2] = 0.013;
+        arr[n * 4 + 3] = 0.75 + 0.25 * Math.sin(d.phase * 2.3);
+      }
       n++;
     }
     u.uDotCount.value = n;
-    const count = this.rain ? this.rain.collected : this.flies!.caught;
+    // redraw the ink when a count or the ice changes
+    let count = 0;
+    if (r) {
+      for (let i = 0; i < r.targets.length; i++) count += Math.min(r.targets[i].count, 63) * 64 ** i;
+      count += r.ice * 64 ** 3;
+    } else count = this.flies!.caught;
     if (count !== this.puzzleCount) {
-      if (count > this.puzzleCount && this.puzzleCount >= 0) this.sfx.tap();
+      if (!r && count > this.puzzleCount && this.puzzleCount >= 0) this.sfx.tap();
       this.puzzleCount = count;
       this.inkPuzzle();
     }
-    if (!this.tipShown && this.flies && this.stateTime > 20 && this.flies.caught < 3) {
+    const info = PUZZLES[this.progress.puzzle];
+    const stuck = r ? this.stateTime > 30 && !r.solved : this.stateTime > 20 && this.flies!.caught < 3;
+    if (!this.tipShown && info?.tip && stuck) {
       this.tipShown = true;
       this.inkPuzzle();
     }
-    if (this.puzzleDoneAt < 0 && p.solved) {
+    const solved = r ? r.solved : this.flies!.solved;
+    if (this.puzzleDoneAt < 0 && solved) {
       this.puzzleDoneAt = this.stateTime;
       this.sfx.chime();
       this.inkPuzzle();
@@ -872,53 +902,154 @@ export class GameSystem extends createSystem({}) {
     }
   }
 
+  /** Read each hand's tool from its shape; shapes this puzzle does not allow become ghosts. */
+  private updateTools(dt: number) {
+    const allowed = PUZZLES[this.progress.puzzle]?.tools ?? 'any';
+    let key = '';
+    let ghostR = false;
+    let ghostL = false;
+    for (let i = 0; i < 2; i++) {
+      const side = SIDES_RL[i];
+      const h = this.handIn[i];
+      const prev = this.palmPrev[i];
+      if (!this.present[side]) {
+        this.trackers[i].update(null, side, dt);
+        h.tool = null;
+        h.mask.fill(0);
+        prev[2] = 0;
+        this.toolState[i] = '';
+        key += '-|';
+        continue;
+      }
+      rasterize(this.live, h.mask, false, i * SEGS_PER_HAND, SEGS_PER_HAND);
+      const j = this.joints[side];
+      let tool: Tool | null = this.trackers[i].update(j, side, dt);
+      // gentle mode: any shape counts as the first tool allowed here
+      if (allowed !== 'any' && tool && !allowed.includes(tool)) tool = this.progress.gentle ? allowed[0] : null;
+      h.tool = tool;
+      h.palmUp = this.trackers[i].f.palmUp;
+      if (tool === null) {
+        if (i === 0) ghostR = true;
+        else ghostL = true;
+      }
+      // the palm center (between the wrist and the middle knuckle) on the paper
+      const pc = projectPoint((j[0] + j[33]) / 2, (j[1] + j[34]) / 2, (j[2] + j[35]) / 2, this.palmTmp);
+      if (pc) {
+        if (prev[2] && dt > 0) {
+          const k = Math.min(1, dt * 12);
+          h.vx += ((pc[0] - prev[0]) / dt - h.vx) * k;
+          h.vy += ((pc[1] - prev[1]) / dt - h.vy) * k;
+        } else {
+          h.vx = 0;
+          h.vy = 0;
+        }
+        h.x = prev[0] = pc[0];
+        h.y = prev[1] = pc[1];
+        prev[2] = 1;
+      }
+      this.toolState[i] = tool ?? 'x';
+      key += `${this.toolState[i]}|`;
+    }
+    this.theater.live.setGhost(ghostR, ghostL);
+    if (key !== this.toolKey) {
+      if (this.toolKey) this.sfx.tap();
+      this.toolKey = key;
+      this.inkPuzzle();
+    }
+  }
+
+  private playPuzzleEvents() {
+    const ev = this.rain!.events;
+    for (const e of ev) {
+      if (e === 'knock') this.sfx.cue('thump');
+      else if (e === 'free') {
+        this.sfx.cue('thump');
+        this.sfx.chime();
+      } else if (e === 'spill') {
+        this.sfx.cue('hurt');
+        if (!this.tipShown && PUZZLES[this.progress.puzzle]?.tip) {
+          this.tipShown = true;
+          this.inkPuzzle();
+        }
+      } else if (e === 'pour') this.sfx.cue('whoosh');
+      else if (e === 'drop' || e === 'pearl') this.sfx.tap();
+    }
+    ev.length = 0;
+  }
+
   private inkPuzzle() {
     const info = PUZZLES[this.progress.puzzle] ?? PUZZLES[0];
     const done = this.puzzleDoneAt >= 0;
-    const goal = this.rain ? this.rain.goal : this.flies?.goal ?? 0;
-    const count = Math.max(0, this.puzzleCount);
-    const what = this.rain ? 'drops in the cup' : 'fireflies in the jar';
-    this.ink(
-      [info.name],
-      wrap(done ? info.done : this.tipShown ? 'Tip: sweep an open hand from right to left, then lay it flat and press down over the jar.' : info.hint, 52),
-      '',
-    );
-    void what;
-    // ink the props onto the paper
-    const g = this.theater.ink.getContext('2d')!;
+    const r = this.rain;
+    const c = this.theater.ink;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    g.save();
+    g.fillStyle = '#000';
+    g.strokeStyle = '#000';
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = 'italic 600 60px Georgia, serif';
+    g.fillText(info.name, 512, 88);
+    // the tools this puzzle allows
+    if (info.tools !== 'any') {
+      g.globalAlpha = 0.72;
+      g.font = 'italic 26px Georgia, serif';
+      g.fillText('Tools:  ' + info.tools.map((t) => `${TOOL_NAMES[t]} (${TOOL_HOW[t]})`).join('   ·   '), 512, 126);
+    }
+    g.globalAlpha = 1;
+    g.font = '32px Georgia, serif';
+    const text = done ? info.done : this.tipShown && info.tip ? info.tip : info.hint;
+    wrap(text, 58).slice(0, 2).forEach((t, i) => g.fillText(t, 512, 170 + i * 40));
+
     const X = (x: number) => ((x + WALL_W / 2) / WALL_W) * 1024;
     const Y = (y: number) => ((WALL_H / 2 - y) / WALL_H) * 704;
     const S = 1024 / WALL_W;
-    g.save();
-    g.strokeStyle = '#000';
-    g.fillStyle = '#000';
     g.lineWidth = 5;
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    if (this.rain) {
-      const c = this.rain.cloud;
+    if (r) {
+      const cl = r.cloud;
       g.globalAlpha = 0.55;
-      for (const [dx, dy, r] of [[-0.07, 0, 0.04], [0, 0.02, 0.055], [0.07, 0, 0.042], [0.03, -0.015, 0.04], [-0.035, -0.015, 0.038]]) {
+      for (const [dx, dy, rr] of [[-0.07, 0, 0.04], [0, 0.02, 0.055], [0.07, 0, 0.042], [0.03, -0.015, 0.04], [-0.035, -0.015, 0.038]]) {
         g.beginPath();
-        g.arc(X(c.x + dx), Y(c.y + 0.04 + dy), r * S, 0, Math.PI * 2);
+        g.arc(X(cl.x + dx), Y(cl.y + 0.04 + dy), rr * S, 0, Math.PI * 2);
         g.fill();
       }
-      const k = this.rain.cup;
-      g.globalAlpha = 0.85;
-      g.beginPath();
-      g.moveTo(X(k.x - k.w / 2), Y(k.y + k.h / 2));
-      g.lineTo(X(k.x - k.w / 2 + 0.015), Y(k.y - k.h / 2));
-      g.lineTo(X(k.x + k.w / 2 - 0.015), Y(k.y - k.h / 2));
-      g.lineTo(X(k.x + k.w / 2), Y(k.y + k.h / 2));
-      g.stroke();
-      // water level
-      const f = Math.min(1, count / goal);
-      if (f > 0) {
-        g.globalAlpha = 0.35;
-        const top = k.y - k.h / 2 + k.h * 0.85 * f;
-        const bottom = k.y - k.h / 2;
-        g.fillRect(X(k.x - k.w / 2 + 0.018), Y(top), (k.w - 0.036) * S, Y(bottom) - Y(top));
+      // the ice: a pale block around the cloud, cracking with each knock
+      if (r.ice > 0) {
+        const b = r.iceBox;
+        g.globalAlpha = 0.16;
+        g.fillRect(X(b.x0), Y(b.y1), (b.x1 - b.x0) * S, (b.y1 - b.y0) * S);
+        g.globalAlpha = 0.75;
+        g.lineWidth = 4;
+        g.strokeRect(X(b.x0), Y(b.y1), (b.x1 - b.x0) * S, (b.y1 - b.y0) * S);
+        g.lineWidth = 3;
+        const knocks = r.iceMax - r.ice;
+        for (let k = 0; k < knocks; k++) {
+          const sx = b.x0 + (b.x1 - b.x0) * (0.3 + 0.25 * k);
+          g.beginPath();
+          g.moveTo(X(sx), Y(b.y1));
+          g.lineTo(X(sx + 0.02), Y(b.y1 - 0.04));
+          g.lineTo(X(sx - 0.01), Y(b.y1 - 0.08));
+          g.lineTo(X(sx + 0.015), Y(b.y0));
+          g.stroke();
+        }
+        g.lineWidth = 5;
       }
+      if (r.shelf) {
+        const sh = r.shelf;
+        g.globalAlpha = 0.8;
+        g.beginPath();
+        g.moveTo(X(sh.x - sh.w / 2), Y(sh.y));
+        g.lineTo(X(sh.x + sh.w / 2), Y(sh.y));
+        g.moveTo(X(sh.x - sh.w / 2 + 0.03), Y(sh.y));
+        g.lineTo(X(sh.x - sh.w / 2 + 0.06), Y(sh.y - 0.05));
+        g.moveTo(X(sh.x + sh.w / 2 - 0.03), Y(sh.y));
+        g.lineTo(X(sh.x + sh.w / 2 - 0.06), Y(sh.y - 0.05));
+        g.stroke();
+      }
+      for (const t of r.targets) this.inkTarget(g, t, X, Y, S);
     }
     if (this.flies) {
       const j = this.flies.jar;
@@ -932,14 +1063,21 @@ export class GameSystem extends createSystem({}) {
       g.lineTo(X(j.x + j.r * 0.6), Y(j.y + j.r * 1.4));
       g.lineTo(X(j.x + j.r * 0.6), Y(j.y + j.r * 1.15));
       g.stroke();
-    }
-    // the count sits just above the cup or jar, where the eyes already are
-    const prop = this.rain ? { x: this.rain.cup.x, y: this.rain.cup.y + this.rain.cup.h / 2 + 0.04 } : this.flies ? { x: this.flies.jar.x, y: this.flies.jar.y + this.flies.jar.r * 1.4 + 0.04 } : null;
-    if (prop) {
       g.globalAlpha = 0.8;
       g.font = '600 30px Georgia, serif';
-      g.textAlign = 'center';
-      g.fillText(`${Math.min(count, goal)} of ${goal}`, X(prop.x), Y(prop.y));
+      g.fillText(`${Math.min(this.flies.caught, this.flies.goal)} of ${this.flies.goal}`, X(j.x), Y(j.y + j.r * 1.4 + 0.04));
+    }
+    // what each hand is making now
+    if (r && info.tools !== 'any') {
+      const name = (i: number) => {
+        const st = this.toolState[i];
+        return st === '' ? '' : st === 'x' ? 'not a tool here' : TOOL_NAMES[st as Tool];
+      };
+      const parts = [name(1) && `Left hand: ${name(1)}`, name(0) && `Right hand: ${name(0)}`].filter(Boolean);
+      g.globalAlpha = 0.62;
+      g.font = '22px Georgia, serif';
+      g.textAlign = 'left';
+      g.fillText(parts.join('   ·   '), 24, 690);
     }
     g.globalAlpha = 0.55;
     g.font = '22px Georgia, serif';
@@ -947,6 +1085,102 @@ export class GameSystem extends createSystem({}) {
     g.fillText(`Puzzle ${this.progress.puzzle + 1} of ${PUZZLES.length}`, 1000, 690);
     g.restore();
     this.theater.inkTex.needsUpdate = true;
+  }
+
+  /** Draw a puzzle target (cup, pot, shell or lantern) and its count. */
+  private inkTarget(g: CanvasRenderingContext2D, t: Target, X: (x: number) => number, Y: (y: number) => number, S: number) {
+    const f = Math.min(1, t.count / t.goal);
+    const l = t.x - t.w / 2, rr = t.x + t.w / 2, top = t.y + t.h / 2, bot = t.y - t.h / 2;
+    g.globalAlpha = 0.85;
+    g.lineWidth = 5;
+    if (t.style === 'cup' || t.style === 'pot') {
+      const inset = t.style === 'pot' ? 0.03 : 0.015;
+      g.beginPath();
+      g.moveTo(X(l), Y(top));
+      g.lineTo(X(l + inset), Y(bot));
+      g.lineTo(X(rr - inset), Y(bot));
+      g.lineTo(X(rr), Y(top));
+      g.stroke();
+      if (t.style === 'pot') {
+        // a rim, and a moon flower that grows as the seed drinks
+        g.beginPath();
+        g.moveTo(X(l - 0.012), Y(top));
+        g.lineTo(X(rr + 0.012), Y(top));
+        g.stroke();
+        const stem = 0.04 + f * 0.2;
+        g.lineWidth = 4;
+        g.beginPath();
+        g.moveTo(X(t.x), Y(top));
+        g.quadraticCurveTo(X(t.x - 0.03), Y(top + stem * 0.5), X(t.x), Y(top + stem));
+        g.stroke();
+        if (f > 0.3) {
+          g.beginPath();
+          g.ellipse(X(t.x + 0.025), Y(top + stem * 0.4), 0.022 * S, 0.01 * S, -0.5, 0, Math.PI * 2);
+          g.fill();
+        }
+        if (f > 0.6) {
+          g.beginPath();
+          g.ellipse(X(t.x - 0.025), Y(top + stem * 0.65), 0.022 * S, 0.01 * S, 0.5, 0, Math.PI * 2);
+          g.fill();
+        }
+        const bloom = f >= 1 ? 1 : f > 0.8 ? 0.45 : 0.2;
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2;
+          g.beginPath();
+          g.ellipse(X(t.x + Math.cos(a) * 0.018 * bloom), Y(top + stem + Math.sin(a) * 0.018 * bloom), 0.016 * S * bloom, 0.008 * S * bloom, a, 0, Math.PI * 2);
+          g.fill();
+        }
+      } else if (f > 0) {
+        g.globalAlpha = 0.35;
+        const wt = bot + t.h * 0.85 * f;
+        g.fillRect(X(l + 0.018), Y(wt), (t.w - 0.036) * S, Y(bot) - Y(wt));
+      }
+    } else if (t.style === 'shell') {
+      // a scallop shell, open, with the pearls it holds
+      g.beginPath();
+      g.arc(X(t.x), Y(bot), (t.w / 2) * S, Math.PI, 0);
+      g.stroke();
+      g.lineWidth = 3;
+      for (let k = 1; k < 5; k++) {
+        const a = Math.PI + (k / 5) * Math.PI;
+        g.beginPath();
+        g.moveTo(X(t.x), Y(bot));
+        g.lineTo(X(t.x + Math.cos(a) * t.w * 0.48), Y(bot - Math.sin(a) * t.w * 0.48));
+        g.stroke();
+      }
+      g.globalAlpha = 0.5;
+      for (let k = 0; k < Math.min(t.count, t.goal); k++) {
+        g.beginPath();
+        g.arc(X(t.x - 0.05 + k * 0.03), Y(bot + 0.022), 0.012 * S, 0, Math.PI * 2);
+        g.fill();
+      }
+    } else {
+      // a paper lantern that fills with light
+      g.beginPath();
+      g.ellipse(X(t.x), Y(t.y), (t.w / 2) * S, (t.h / 2) * S, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(X(t.x), Y(top));
+      g.lineTo(X(t.x), Y(top + 0.04));
+      g.stroke();
+      g.lineWidth = 3;
+      for (const k of [-0.5, 0, 0.5]) {
+        g.beginPath();
+        g.ellipse(X(t.x + k * t.w * 0.3), Y(t.y), (t.w * 0.12 * (1 - Math.abs(k))) * S + 1, (t.h / 2) * S, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      if (f > 0) {
+        g.globalAlpha = 0.18 * f;
+        g.beginPath();
+        g.ellipse(X(t.x), Y(t.y), (t.w / 2) * S, (t.h / 2) * S, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    g.globalAlpha = 0.8;
+    g.font = '600 28px Georgia, serif';
+    g.textAlign = 'center';
+    const labelY = t.style === 'pot' ? top + 0.27 : t.style === 'lantern' ? top + 0.08 : top + 0.04;
+    g.fillText(`${Math.min(t.count, t.goal)} of ${t.goal}`, X(t.x), Y(labelY));
   }
 
   private buildFreeCands() {
@@ -1036,7 +1270,7 @@ export class GameSystem extends createSystem({}) {
       if (this.stateTime > wait && this.hold === 0 && this.score < thr - 0.04) want = 1;
     }
     // rain puzzle: after a while with no luck, show a slide that works
-    const rainHelp = this.state === 'puzzle' && !!this.rain && this.puzzleDoneAt < 0 && this.stateTime > (this.progress.gentle ? 6 : 12) && this.rain.collected < 2;
+    const rainHelp = this.state === 'puzzle' && this.rain?.id === 'rain' && this.puzzleDoneAt < 0 && this.stateTime > (this.progress.gentle ? 6 : 12) && this.rain.collected < 2;
     if (rainHelp) want = 1;
     this.guideAlpha += (want - this.guideAlpha) * Math.min(1, dt * (want ? 1.2 : 4));
     const show = this.guideAlpha > 0.01 && (rainHelp || this.targetJoints.length > 0);

@@ -41,12 +41,15 @@ const segVert = /* glsl */ `
 attribute vec4 iA; // ax, ay, ar, as  (wall meters)
 attribute vec4 iB; // bx, by, br, bs
 uniform vec2 uWall;
+uniform vec2 uGhost;  // per hand (right, left): 1 = a ghost shadow, not solid
 varying vec2 vP;
 varying vec4 vA;
 varying vec4 vB;
+varying float vGhost;
 void main() {
   vA = iA;
   vB = iB;
+  vGhost = gl_InstanceID < ${SEGS_PER_HAND} ? uGhost.x : uGhost.y;
   if (iA.z <= 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // unused slot: off screen
     return;
@@ -65,6 +68,7 @@ uniform float uFadeArm;   // 1: the forearm fades into a short stem at the wrist
 varying vec2 vP;
 varying vec4 vA;
 varying vec4 vB;
+varying float vGhost;
 void main() {
   vec2 pa = vP - vA.xy;
   vec2 ba = vB.xy - vA.xy;
@@ -76,7 +80,8 @@ void main() {
   float d = length(pa - ba * h) - r;
   float cover = 1.0 - smoothstep(-s, s, d);
   float light = 1.0 - cover;
-  gl_FragColor = vec4(light, light, light, 1.0);
+  // red: the solid shadow; green: every shadow, ghosts included
+  gl_FragColor = vec4(mix(light, 1.0, vGhost), light, light, 1.0);
 }`;
 
 const blurVert = /* glsl */ `
@@ -93,12 +98,12 @@ uniform sampler2D uSrc;
 uniform vec2 uStep;
 varying vec2 vUv;
 void main() {
-  float c = texture2D(uSrc, vUv).r * 0.2270270;
-  c += texture2D(uSrc, vUv + uStep * 1.3846154).r * 0.3162162;
-  c += texture2D(uSrc, vUv - uStep * 1.3846154).r * 0.3162162;
-  c += texture2D(uSrc, vUv + uStep * 3.2307692).r * 0.0702703;
-  c += texture2D(uSrc, vUv - uStep * 3.2307692).r * 0.0702703;
-  gl_FragColor = vec4(c, c, c, 1.0);
+  vec2 c = texture2D(uSrc, vUv).rg * 0.2270270;
+  c += texture2D(uSrc, vUv + uStep * 1.3846154).rg * 0.3162162;
+  c += texture2D(uSrc, vUv - uStep * 1.3846154).rg * 0.3162162;
+  c += texture2D(uSrc, vUv + uStep * 3.2307692).rg * 0.0702703;
+  c += texture2D(uSrc, vUv - uStep * 3.2307692).rg * 0.0702703;
+  gl_FragColor = vec4(c.r, c.g, c.r, 1.0);
 }`;
 
 /** Two-pass Gaussian blur from one texture into a smaller target. */
@@ -189,7 +194,7 @@ export class ShadowPass {
     const mat = new ShaderMaterial({
       vertexShader: segVert,
       fragmentShader: segFrag,
-      uniforms: { uWall: { value: new Vector2(WALL_W, WALL_H) }, uFadeArm: { value: 1 } },
+      uniforms: { uWall: { value: new Vector2(WALL_W, WALL_H) }, uFadeArm: { value: 1 }, uGhost: { value: new Vector2() } },
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -204,6 +209,11 @@ export class ShadowPass {
     this.scene.add(mesh);
   }
   private segMat: ShaderMaterial;
+
+  /** Mark a hand's shadow as a ghost (a shape the puzzle does not allow): drawn faint, not solid. */
+  setGhost(right: boolean, left: boolean) {
+    this.segMat.uniforms.uGhost.value.set(right ? 1 : 0, left ? 1 : 0);
+  }
 
   /** 1 fades the forearm into a stem (normal play); 0 keeps the whole arm (puzzles, where it is the slide). */
   setFadeArm(v: number) {
@@ -351,6 +361,13 @@ void main() {
   col = mix(col, flatCol * lit * 2.0, ghost);
   col = mix(col, nightCreature, creature);
   col = mix(col, nightLive, live);
+  // a ghost: a hand shape this puzzle does not allow casts only a faint, dotted wash
+  float ghostSoft = 1.0 - texture2D(uLiveSoft, vUv).g;
+  float ghostCut = smoothstep(0.45, 0.55, ghostSoft) * (1.0 - live) * uLiveAlpha;
+  float ghostRim = exp(-pow((ghostSoft - 0.5) / 0.06, 2.0)) * (1.0 - live) * uLiveAlpha;
+  float dots = step(0.55, fract((p.x - p.y) * 55.0));
+  col = mix(col, mix(vec3(0.42, 0.36, 0.55), vec3(0.4), uContrast) * lit, ghostCut * 0.22);
+  col = mix(col, vec3(0.45, 0.38, 0.7) * lit, ghostRim * dots * 0.7);
   // a fine rim where the paper was cut: violet at rest, gold as the shape gets close
   float liveRim = exp(-pow((liveSoft - 0.5) / 0.055, 2.0)) * uLiveAlpha;
   vec3 rimCol = mix(vec3(0.55, 0.45, 0.95), gold * 1.2, clamp(uMagic * 1.3, 0.0, 1.0));
@@ -394,6 +411,13 @@ void main() {
         float halo = exp(-dd * dd / (d.z * d.z * 4.0));
         col += vec3(1.0, 0.78, 0.32) * (core * 1.2 + halo * 0.6) * -d.w;
       }
+    } else if (uDotKind < 0.5 && d.w < 0.0) {
+      // a pearl of moonlight: a pale round pearl with a soft halo
+      float a = 1.0 - smoothstep(d.z * 0.8, d.z, dd);
+      float hl = 1.0 - smoothstep(0.0, d.z * 0.4, length(p - d.xy - vec2(-d.z * 0.3, d.z * 0.35)));
+      vec3 pc = mix(vec3(0.86, 0.84, 0.97), vec3(1.0, 0.95, 0.82), hl) * (0.85 + 0.15 * sin(uTime * 3.0 + d.x * 30.0));
+      col = mix(col, pc * mix(1.25, 1.0, uContrast), a);
+      col += vec3(0.75, 0.7, 1.0) * exp(-dd * dd / (d.z * d.z * 5.0)) * 0.35 * (1.0 - uContrast);
     } else if (uDotKind < 0.5) {
       float a = 1.0 - smoothstep(d.z * 0.75, d.z, length((p - d.xy) * vec2(1.0, 0.8)));
       col = mix(col, mix(vec3(0.16, 0.3, 0.55), vec3(0.05, 0.1, 0.2), uContrast) * lit, a * 0.9);

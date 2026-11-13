@@ -26,7 +26,8 @@ export interface Level {
 const R = (p: Omit<HandPose, 'hand'>): HandPose => ({ hand: 'right', ...p });
 const L = (p: Omit<HandPose, 'hand'>): HandPose => ({ hand: 'left', ...p });
 
-export const LEVELS: Level[] = [
+/** Every creature shape made so far, story and retired. */
+export const ALL_LEVELS: Level[] = [
   {
     id: 'moth',
     name: 'The Starfish',
@@ -146,3 +147,13 @@ export const LEVELS: Level[] = [
     ],
   },
 ];
+
+/**
+ * The story: the six classic shadows that read clearly and come naturally
+ * (an open hand, a rabbit, a crocodile, a dog, a bird, a stag). The shadow
+ * tools puzzles follow them.
+ */
+const STORY = ['moth', 'hare', 'crocodile', 'dog', 'bird', 'deer'];
+export const LEVELS: Level[] = STORY.map((id) => ALL_LEVELS.find((l) => l.id === id)!);
+/** Shapes no longer in the story (fox, butterfly, owl, spider); tools and tests still use their poses. */
+export const RETIRED: Level[] = ALL_LEVELS.filter((l) => !STORY.includes(l.id));

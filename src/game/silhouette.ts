@@ -174,15 +174,18 @@ export function clearHand(buf: SegmentBuffer, slot0: number) {
 export const GRID_W = 128;
 export const GRID_H = 88;
 
-/** Rasterize segments into a binary mask over the wall. Skips forearm slots. */
-export function rasterize(buf: SegmentBuffer, mask: Uint8Array, skipForearm = true): number {
+/**
+ * Rasterize segments into a binary mask over the wall. Skips forearm slots.
+ * `slot0`/`slots` limit it to some segments (one hand: SEGS_PER_HAND from its first slot).
+ */
+export function rasterize(buf: SegmentBuffer, mask: Uint8Array, skipForearm = true, slot0 = 0, slots = Infinity): number {
   mask.fill(0);
   const d = buf.data;
   const sx = WALL_W / GRID_W;
   const sy = WALL_H / GRID_H;
   let area = 0;
-  const n = d.length / 8;
-  for (let s = 0; s < n; s++) {
+  const n = Math.min(d.length / 8, slot0 + slots);
+  for (let s = slot0; s < n; s++) {
     if (skipForearm && s % SEGS_PER_HAND === FOREARM_SLOT) continue;
     const o = s * 8;
     const ar = d[o + 2];
