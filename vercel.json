@@ -9,6 +9,11 @@
       "source": "/quest",
       "destination": "https://www.oculus.com/open_url/?url=https%3A%2F%2Fshadowfolk.vercel.app%2F",
       "permanent": false
+    },
+    {
+      "source": "/video",
+      "destination": "https://youtu.be/hYi-IIQHwPE",
+      "permanent": false
     }
   ]
 }
