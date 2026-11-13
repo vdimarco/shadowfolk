@@ -6,7 +6,7 @@
  */
 import type { WebGLRenderer } from '@iwsdk/core';
 import type { Sfx } from './audio.js';
-import { Chase, type ChaseEvent, GROUND_Y, HERO_X, OBSTACLES, STAGES } from './chase.js';
+import { Chase, type ChaseEvent, GROUND_Y, HERO_X, OBSTACLES, QUICK_SECONDS, STAGES } from './chase.js';
 import { ART, ArtSprite } from './creature-art.js';
 import { type HandPose, poseToJoints } from './hand-model.js';
 import { LEVELS } from './levels.js';
@@ -54,6 +54,12 @@ export class ChaseScene {
   private jump = 0;
   private line = '';
   private sub = '';
+  /** Stars from the stage just finished, shown with the next stage's name. */
+  private starsText = '';
+  /** Party: whose turn it is ('' outside a party). */
+  private label = '';
+  private shownSecond = -1;
+  private runs = 0;
   /** Every clear, miss and stage with its time, for the video's soundtrack. */
   readonly log: { t: number; type: string }[] = [];
   score = 0;
@@ -78,8 +84,11 @@ export class ChaseScene {
     theater.root.add(this.wolf.mesh, this.obstacle.mesh, this.runner.mesh, this.creature.mesh);
   }
 
-  start(gentle: boolean) {
+  start(gentle: boolean, mode: 'story' | 'quick' = 'story', label = '') {
     this.gentle = gentle;
+    this.label = label;
+    this.starsText = '';
+    this.shownSecond = -1;
     const buf = new SegmentBuffer();
     const m = new Uint8Array(GRID_W * GRID_H);
     const ids = new Set(Object.values(OBSTACLES).map((o) => o.shape));
@@ -96,7 +105,7 @@ export class ChaseScene {
       const threshold = LEVELS.find((l) => l.id === id)?.threshold ?? 0.6;
       this.cands.set(id, { id, m: id === 'stone' ? null : matcher, threshold, segs: buf.data.slice(), cx, cy });
     }
-    this.chase = new Chase(gentle, 3);
+    this.chase = new Chase(gentle, mode === 'story' ? 3 : 11 + this.runs++ * 7, mode);
     this.eventCount = 0;
     this.act = null;
     this.sfx.setBattle(true);
@@ -129,8 +138,14 @@ export class ChaseScene {
   get info() {
     const c = this.chase;
     return c
-      ? { stage: c.stage, state: c.state, lead: c.lead, streak: c.streak, cleared: c.cleared, missed: c.missed, wanted: c.wanted, timeLeft: c.timeLeft }
+      ? { mode: c.mode, stage: c.stage, state: c.state, lead: c.lead, streak: c.streak, cleared: c.cleared, missed: c.missed, wanted: c.wanted, timeLeft: c.timeLeft, score: c.score, mult: c.mult, stars: [...c.stars], runTime: c.runTime }
       : null;
+  }
+
+  /** How the run went: the score, and stars per stage (story). */
+  get result() {
+    const c = this.chase;
+    return c ? { mode: c.mode, score: c.score, stars: [...c.stars], escaped: c.state === 'won', cleared: c.cleared } : null;
   }
 
   /** Returns true once the player has escaped and the moment has played out. */
@@ -169,7 +184,7 @@ export class ChaseScene {
     const bob = Math.abs(Math.sin(c.distance * 16)) * 0.012;
     this.jump = Math.max(0, this.jump - dt * 1.6);
     const jy = Math.sin(Math.min(1, 1 - this.jump) * Math.PI) * (this.jump > 0 ? 0.1 : 0);
-    const caught = c.state === 'caught' ? Math.min(1, c.stateTime / 0.5) : 0;
+    const caught = c.state === 'caught' || c.state === 'over' ? Math.min(1, c.stateTime / 0.5) : 0;
     const sh = this.shake * Math.sin(this.time * 70) * 0.012;
     this.shake = Math.max(0, this.shake - dt * 2.5);
     if (this.runner.id === 'runner' || this.runner.show('runner')) {
@@ -262,7 +277,15 @@ export class ChaseScene {
     u.uDotKind.value = 2;
     u.uDotCount.value = n;
 
-    return c.state === 'won' && c.stateTime > 3.5;
+    // Quick Chase: the clock on the paper, once a second
+    if (c.mode === 'quick' && c.state === 'run') {
+      const sec = Math.max(0, Math.ceil(QUICK_SECONDS - c.runTime));
+      if (sec !== this.shownSecond) {
+        this.shownSecond = sec;
+        this.inkPanel();
+      }
+    }
+    return (c.state === 'won' || c.state === 'over') && c.stateTime > (c.mode === 'story' ? 3.5 : 4.5);
   }
 
   private onEvent(e: ChaseEvent) {
@@ -270,9 +293,10 @@ export class ChaseScene {
     switch (e.type) {
       case 'stage': {
         const st = STAGES[e.stage];
-        this.line = st.name;
-        this.sub = st.line;
-        this.every = Math.max(0.2, 0.3 * (st.approach / 4.2));
+        const stInfo = c.info;
+        this.line = c.mode === 'story' ? st.name : this.label || stInfo.name;
+        this.sub = (this.starsText ? `${this.starsText}   ` : '') + (c.mode === 'story' ? st.line : stInfo.line);
+        this.every = Math.max(0.2, 0.3 * ((c.mode === 'story' ? st.approach : 2.6) / 4.2));
         this.sfx.setTempo(this.every);
         this.sfx.cue('growl');
         this.log.push({ t: this.time, type: 'growl' });
@@ -288,7 +312,7 @@ export class ChaseScene {
       }
       case 'clear': {
         const ob = OBSTACLES[e.kind];
-        this.line = e.early > 0.5 ? 'Brilliant!' : e.early > 0.25 ? 'Nice!' : 'Just in time!';
+        this.line = (e.early > 0.5 ? 'Brilliant!' : e.early > 0.25 ? 'Nice!' : 'Just in time!') + `  +${e.points}`;
         this.sub = ob.done;
         this.hitFlash = 1;
         this.jump = ob.move === 'arc' ? 1 : 0;
@@ -301,6 +325,26 @@ export class ChaseScene {
         }
         break;
       }
+      case 'stageDone':
+        this.starsText = `${'★'.repeat(e.stars)}${'☆'.repeat(3 - e.stars)}${e.full ? ' Full combo!' : ''}`;
+        break;
+      case 'timeup':
+        this.line = 'Time!';
+        this.sub = `You outran the wolf for a whole minute. ${c.score.toLocaleString('en-US')} points.`;
+        this.sfx.setBattle(false);
+        this.sfx.cue('win');
+        this.log.push({ t: this.time, type: 'win' });
+        this.log.push({ t: this.time, type: 'calm' });
+        break;
+      case 'over':
+        this.music.drop(this.time);
+        this.line = 'Caught!';
+        this.sub = `The wolf got you after ${Math.round(c.runTime)} seconds. ${c.score.toLocaleString('en-US')} points.`;
+        this.sfx.setBattle(false);
+        this.sfx.cue('growl');
+        this.log.push({ t: this.time, type: 'growl' });
+        this.log.push({ t: this.time, type: 'calm' });
+        break;
       case 'pull':
         this.sub = 'Three in a row! You pull ahead of the wolf.';
         break;
@@ -343,7 +387,23 @@ export class ChaseScene {
     g.textBaseline = 'alphabetic';
     g.globalAlpha = 0.6;
     g.font = 'italic 26px Georgia, serif';
-    g.fillText(`${STAGES[c.stage].name}  ·  stage ${c.stage + 1} of ${STAGES.length}`, 512, 44);
+    g.fillText(
+      c.mode === 'story'
+        ? `${STAGES[c.stage].name}  ·  stage ${c.stage + 1} of ${STAGES.length}`
+        : `${this.label ? this.label + '  ·  ' : ''}Quick Chase  ·  ${Math.max(0, Math.ceil(QUICK_SECONDS - c.runTime))} s left`,
+      512,
+      44,
+    );
+    // the score and the combo, top right
+    g.textAlign = 'right';
+    g.globalAlpha = 0.8;
+    g.font = '600 30px Georgia, serif';
+    g.fillText(c.score.toLocaleString('en-US'), 990, 48);
+    if (c.mult > 1) {
+      g.font = 'italic 600 26px Georgia, serif';
+      g.fillText(`combo ×${c.mult}`, 990, 80);
+    }
+    g.textAlign = 'center';
     g.globalAlpha = 1;
     g.font = 'italic 700 64px Georgia, serif';
     g.fillText(this.line, 512, 112);

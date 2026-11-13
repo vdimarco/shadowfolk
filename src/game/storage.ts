@@ -8,6 +8,9 @@ export interface Progress {
   puzzle: number;
   /** The chase from the Ink Wolf is done (or skipped). */
   chase: boolean;
+  /** Best scores: the story chase, and the one-minute Quick Chase. */
+  chaseBest?: number;
+  quickBest?: number;
   /** Chapter four: the Ink Wolf is beaten (or skipped). */
   battle: boolean;
 }

@@ -15,7 +15,7 @@ function play(c: Chase, react: (approach: number) => number, maxSec: number, wro
   let since = 0;
   let n = 0;
   const stageAt: number[] = [];
-  while (t < maxSec && c.state !== 'won') {
+  while (t < maxSec && c.state !== 'won' && c.state !== 'over') {
     const o = c.obstacle;
     if (o && !o.result) {
       if (seen !== c.events.length && c.events[c.events.length - 1].type === 'spawn') {
@@ -42,6 +42,34 @@ function play(c: Chase, react: (approach: number) => number, maxSec: number, wro
   check(c.state === 'won' && c.missed === 0, `quick player: ${c.state}, ${c.cleared} cleared, ${c.missed} missed, ${r.t.toFixed(0)} s (stages at ${r.stageAt.map((x) => x.toFixed(0)).join(', ')})`);
   check(r.t > 120 && r.t < 210, `the run takes ${r.t.toFixed(0)} s`);
   check(c.best >= 9, `best streak ${c.best}`);
+  check(c.stars.length === 5 && c.stars.every((x) => x === 3), `five full combos: stars ${c.stars.join(' ')}`);
+  check(c.score > 37 * 300, `score ${c.score} (combo up to x${c.mult})`);
+}
+// stars: one miss in a stage is two stars, more is one
+{
+  const c = new Chase(false);
+  play(c, () => 1.0, 900, 4);
+  check(c.stars.length === 5 && c.stars.some((x) => x < 3), `a player who misses every 4th: stars ${c.stars.join(' ')}, score ${c.score}`);
+}
+// a faster player scores more than a slower one
+{
+  const a = new Chase(false), b = new Chase(false);
+  play(a, () => 0.6, 400);
+  play(b, (ap) => ap * 0.8, 400);
+  check(a.score > b.score * 1.2, `quick clears score more: ${a.score} vs ${b.score}`);
+}
+// Quick Chase: a minute, faster and faster; a good player lasts, an idle one is caught fast
+{
+  const c = new Chase(false, 5, 'quick');
+  const r = play(c, () => 0.7, 200);
+  check(c.state === 'won' && c.runTime >= 60 && c.cleared >= 18, `quick chase: ${c.state} after ${c.runTime.toFixed(0)} s run, ${c.cleared} cleared, score ${c.score}, ${r.t.toFixed(0)} s in all`);
+  const idle = new Chase(false, 5, 'quick');
+  let t = 0;
+  while (t < 60 && idle.state !== 'over') {
+    idle.step(DT, null);
+    t += DT;
+  }
+  check(idle.state === 'over' && t < 20, `idle quick chase is over in ${t.toFixed(0)} s`);
 }
 // a player who reacts late (at 90% of the approach) still makes it, just
 {

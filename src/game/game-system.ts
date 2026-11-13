@@ -30,11 +30,12 @@ import { BattleScene } from './battle-scene.js';
 import { ChaseScene } from './chase-scene.js';
 import type { Instrument } from './audio.js';
 import { degreeFor, HandMusic, instrumentFor } from './music.js';
+import { MirrorScene } from './mirror-scene.js';
 import { JointFilter } from './smooth.js';
 import { ART, ArtSprite, CreatureArt } from './creature-art.js';
 import { Creature3D } from './creature3d.js';
 
-type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle' | 'chase';
+type State = 'intro' | 'level' | 'wake' | 'book' | 'finale' | 'free' | 'puzzle' | 'battle' | 'chase' | 'mirror' | 'party';
 
 const HOLD_TIME = 0.55;
 /** Close but not quite: stay this near the shape for NEAR_TIME and it wakes anyway. */
@@ -169,6 +170,21 @@ export class GameSystem extends createSystem({}) {
   /** Music from the hands: each shape is an instrument, its height the note. */
   private music!: HandMusic;
   private clock = 0;
+  /** Shadow Mirror: the no-rules toy. */
+  private mirrorScene!: MirrorScene;
+  /** Which chase runs: the story's, a one-minute Quick Chase, or a party round. */
+  private chaseMode: 'story' | 'quick' | 'party' = 'story';
+  /** Party: each player's Quick Chase score, in turn order; done once a winner is crowned. */
+  private party: { scores: number[]; done: boolean } = { scores: [], done: false };
+  /** The play menu after the story: hold a shape to choose a mode. */
+  private menuCands: { id: string; mode: 'mirror' | 'quick' | 'party' | 'free'; level: Level; m: Matcher }[] = [];
+  private menuBest = -1;
+  private menuShown = -1;
+  private menuHold = 0;
+  /** A shape must leave before the menu listens, so a shape held from before does not choose. */
+  private menuArmed = false;
+  /** One line of news on the menu (the last Quick Chase score). */
+  private menuNews = '';
   /** The illustrated creature that appears when a shadow wakes. */
   private wakeSprite = new ArtSprite(6);
   private wakeArt = false;
@@ -220,6 +236,7 @@ export class GameSystem extends createSystem({}) {
     this.battleScene = new BattleScene(this.theater, this.sfx);
     this.music = new HandMusic(this.sfx);
     this.chaseScene = new ChaseScene(this.theater, this.sfx, this.music);
+    this.mirrorScene = new MirrorScene(this.theater, this.sfx, this.music);
     this.nightWorld = new NightWorld();
     this.theater.root.add(this.nightWorld.root);
     // real hand models only where we draw simulated hands (desktop demo and capture)
@@ -257,6 +274,7 @@ export class GameSystem extends createSystem({}) {
   private enter(s: State) {
     if (this.state === 'battle' && s !== 'battle') this.battleScene.stop();
     if (this.state === 'chase' && s !== 'chase') this.chaseScene.stop();
+    if (this.state === 'mirror' && s !== 'mirror') this.mirrorScene.stop();
     if (s !== 'wake') {
       this.wakeSprite.set(0);
       this.wakeSprite.hide();
@@ -310,14 +328,26 @@ export class GameSystem extends createSystem({}) {
       case 'finale':
         u.uTargetAlpha.value = 0;
         u.uMeter.value = 0;
+        u.uLiveAlpha.value = 1;
         this.freePlay = false;
-        this.ink(
-          ['Every shadow is awake'],
-          this.progress.dailyDay === dayNumber()
-            ? ['Come back tomorrow for a new shadow.', 'Press Free play to make any shadow you know.']
-            : ['A new shadow wakes each day.', 'Press Daily to meet it.'],
-          `Found ${this.progress.found.length}  ·  streak ${this.progress.streak}`,
-        );
+        this.buildMenu();
+        this.menuBest = -1;
+        this.menuShown = -1;
+        this.menuHold = 0;
+        this.menuArmed = false;
+        this.inkMenu();
+        break;
+      case 'mirror':
+        this.isDaily = false;
+        this.freePlay = false;
+        this.targetJoints = [];
+        u.uLiveAlpha.value = 1;
+        this.mirrorScene.start();
+        break;
+      case 'party':
+        u.uTargetAlpha.value = 0;
+        u.uMeter.value = 0;
+        this.inkParty();
         break;
       case 'puzzle': {
         const info = PUZZLES[this.progress.puzzle];
@@ -348,7 +378,11 @@ export class GameSystem extends createSystem({}) {
         this.freePlay = false;
         this.targetJoints = [];
         u.uLiveAlpha.value = 1;
-        this.chaseScene.start(this.progress.gentle);
+        this.chaseScene.start(
+          this.progress.gentle,
+          this.chaseMode === 'story' ? 'story' : 'quick',
+          this.chaseMode === 'party' ? `Player ${this.party.scores.length + 1}` : '',
+        );
         break;
       case 'free':
         this.freePlay = true;
@@ -481,6 +515,14 @@ export class GameSystem extends createSystem({}) {
       this.updateLabels();
       return;
     }
+    if (id === 'book' && this.state === 'party' && this.party.scores.length > 0 && !this.party.done) {
+      // crown the winner now
+      this.party.done = true;
+      this.sfx.cue('win');
+      this.inkParty();
+      this.updateLabels();
+      return;
+    }
     if (id === 'book') {
       if (this.state === 'book') this.resumeFromBook();
       else this.enter('book');
@@ -502,9 +544,18 @@ export class GameSystem extends createSystem({}) {
         saveProgress(this.progress);
         this.startNextLevel();
       } else if (this.state === 'chase') {
-        this.progress.chase = true;
-        saveProgress(this.progress);
-        this.startNextLevel();
+        if (this.chaseMode === 'story') {
+          this.progress.chase = true;
+          saveProgress(this.progress);
+          this.startNextLevel();
+        } else this.endChase();
+      } else if (this.state === 'mirror') this.enter('finale');
+      else if (this.state === 'party') {
+        if (this.party.done) this.enter('finale');
+        else {
+          this.chaseMode = 'party';
+          this.enter('chase');
+        }
       }
       else if (this.state === 'level') {
         // skip: move on without marking the shape found
@@ -535,13 +586,21 @@ export class GameSystem extends createSystem({}) {
             ? this.progress.dailyDay === dayNumber()
               ? 'Free play'
               : 'Daily'
-            : this.state === 'free'
+            : this.state === 'free' || this.state === 'mirror'
               ? 'Done'
+              : this.state === 'party'
+                ? this.party.done
+                  ? 'Done'
+                  : this.party.scores.length
+                    ? 'Next player'
+                    : 'Start'
+                : this.state === 'chase' && this.chaseMode !== 'story'
+                  ? 'Stop'
               : this.state === 'wake'
                 ? 'Next'
                 : 'Skip';
     this.theater.drawLabels({
-      book: this.state === 'book' ? 'Close' : 'Book',
+      book: this.state === 'book' ? 'Close' : this.state === 'party' && this.party.scores.length && !this.party.done ? 'Winner' : 'Book',
       gentle: this.progress.gentle ? 'Gentle: on' : 'Gentle: off',
       next,
     });
@@ -730,7 +789,7 @@ export class GameSystem extends createSystem({}) {
 
     this.updateGuide(dt);
     u.uEye.value.w = 0;
-    if (this.state !== 'puzzle' && this.state !== 'battle' && this.state !== 'chase') u.uDotCount.value = 0;
+    if (this.state !== 'puzzle' && this.state !== 'battle' && this.state !== 'chase' && this.state !== 'mirror') u.uDotCount.value = 0;
 
     switch (this.state) {
       case 'intro': {
@@ -839,13 +898,15 @@ export class GameSystem extends createSystem({}) {
       case 'chase': {
         const done = this.chaseScene.update(dt, renderer, this.mask, area, this.joints, this.present, this.handHeight());
         this.score = this.chaseScene.score;
-        if (done) {
-          this.progress.chase = true;
-          saveProgress(this.progress);
-          this.startNextLevel();
-        }
+        if (done) this.endChase();
         break;
       }
+      case 'mirror':
+        this.mirrorScene.update(dt, renderer, this.live, this.joints, this.present, this.clock, this.handHeight());
+        break;
+      case 'finale':
+        this.updateMenu(dt, area);
+        break;
       case 'battle': {
         const done = this.battleScene.update(dt, renderer, this.mask, area);
         this.score = this.battleScene.score;
@@ -878,6 +939,10 @@ export class GameSystem extends createSystem({}) {
       want = this.battleScene.magic;
     } else if (this.state === 'chase') {
       want = this.chaseScene.magic;
+    } else if (this.state === 'finale') {
+      want = this.menuBest >= 0 ? Math.min(1, this.score / Math.max(0.3, this.menuCands[this.menuBest].level.threshold)) * 0.9 : 0;
+    } else if (this.state === 'mirror') {
+      want = this.present.left || this.present.right ? 0.6 : 0;
     } else if (this.state === 'intro') {
       want = this.present.left || this.present.right ? 0.45 : 0;
     }
@@ -1250,6 +1315,181 @@ export class GameSystem extends createSystem({}) {
     g.fillText(`${Math.min(t.count, t.goal)} of ${t.goal}`, X(t.x), Y(labelY));
   }
 
+  /** A chase has ended: the story moves on; a Quick Chase reports its score; a party round adds it to the board. */
+  private endChase() {
+    const r = this.chaseScene.result;
+    const score = r?.score ?? 0;
+    if (this.chaseMode === 'story') {
+      this.progress.chase = true;
+      this.progress.chaseBest = Math.max(this.progress.chaseBest ?? 0, score);
+      saveProgress(this.progress);
+      this.startNextLevel();
+      return;
+    }
+    if (this.chaseMode === 'quick') {
+      const best = this.progress.quickBest ?? 0;
+      this.menuNews = `Quick Chase: ${score.toLocaleString('en-US')} points.${score > best ? ' A new best!' : ` Your best: ${best.toLocaleString('en-US')}.`}`;
+      this.progress.quickBest = Math.max(best, score);
+      saveProgress(this.progress);
+      this.enter('finale');
+      return;
+    }
+    this.party.scores.push(score);
+    if (this.party.scores.length >= 4) this.party.done = true;
+    if (this.party.done) this.sfx.cue('win');
+    this.enter('party');
+  }
+
+  /** The play menu: four creature shapes, each opens a mode. */
+  private buildMenu() {
+    if (this.menuCands.length) return;
+    const modes: [string, 'mirror' | 'quick' | 'party' | 'free'][] = [
+      ['moth', 'mirror'],
+      ['dog', 'quick'],
+      ['bird', 'party'],
+      ['hare', 'free'],
+    ];
+    const buf = new SegmentBuffer();
+    const m = new Uint8Array(GRID_W * GRID_H);
+    this.menuCands = modes.map(([id, mode]) => {
+      const level = LEVELS.find((l) => l.id === id)!;
+      buf.clear();
+      level.hands.forEach((h, k) => projectHand(poseToJoints(h), buf, k * SEGS_PER_HAND));
+      rasterize(buf, m);
+      const matcher = new Matcher();
+      matcher.setTarget(m);
+      return { id, mode, level, m: matcher };
+    });
+  }
+
+  private updateMenu(dt: number, area: number) {
+    const u = this.theater.wallMat.uniforms;
+    let best = -1, bestRatio = 0, bestScore = 0;
+    if (area > 0) {
+      const st = shapeStats(this.mask);
+      this.menuCands.forEach((c, i) => {
+        const sc = c.m.scoreWithStats(this.mask, st, true);
+        const r = sc / (c.level.threshold - (this.progress.gentle ? 0.1 : 0) - 0.03);
+        if (r > bestRatio) {
+          bestRatio = r;
+          bestScore = sc;
+          best = i;
+        }
+      });
+    }
+    this.score += (bestScore - this.score) * Math.min(1, dt * 8);
+    if (!this.menuArmed) {
+      if (bestRatio < 0.8) this.menuArmed = true;
+      return;
+    }
+    if (best !== this.menuBest) this.menuHold = 0;
+    this.menuBest = best;
+    this.menuHold = best >= 0 && bestRatio >= 1 ? this.menuHold + dt : Math.max(0, this.menuHold - dt * 2);
+    u.uMeter.value = 1;
+    u.uScore.value = Math.min(1, this.menuHold / 0.7);
+    u.uThreshold.value = 2;
+    const shown = best >= 0 && bestRatio >= 0.9 ? best : -1;
+    if (shown !== this.menuShown) {
+      this.menuShown = shown;
+      this.inkMenu();
+    }
+    if (best >= 0 && this.menuHold >= 0.7) {
+      const c = this.menuCands[best];
+      this.sfx.chime();
+      this.music.motif(this.clock, instrumentFor(c.id), 2);
+      u.uMeter.value = 0;
+      if (c.mode === 'mirror') this.enter('mirror');
+      else if (c.mode === 'free') this.enter('free');
+      else if (c.mode === 'quick') {
+        this.chaseMode = 'quick';
+        this.enter('chase');
+      } else {
+        this.party = { scores: [], done: false };
+        this.chaseMode = 'party';
+        this.enter('party');
+      }
+    }
+  }
+
+  private inkMenu() {
+    const c = this.theater.ink;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    g.fillStyle = '#000';
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = 'italic 600 60px Georgia, serif';
+    g.fillText('Play', 512, 84);
+    g.font = '30px Georgia, serif';
+    g.globalAlpha = 0.75;
+    g.fillText('Make a shape and hold it to choose:', 512, 132);
+    g.globalAlpha = 1;
+    const quick = this.progress.quickBest ? `best ${this.progress.quickBest.toLocaleString('en-US')}` : 'how far can you run?';
+    const rows = [
+      ['Starfish', 'Shadow Mirror', 'no rules, just play'],
+      ['Dog', 'Quick Chase', `one minute, ${quick}`],
+      ['Bird', 'Party', 'pass the headset, up to 4 players'],
+      ['Hare', 'Free play', 'wake any shadow you know'],
+    ];
+    rows.forEach(([shape, mode, what], i) => {
+      const y = 196 + i * 62;
+      const on = i === this.menuShown;
+      g.font = `${on ? '700' : '600'} ${on ? 38 : 34}px Georgia, serif`;
+      g.textAlign = 'right';
+      g.fillText(shape, 330, y);
+      g.textAlign = 'left';
+      g.font = `${on ? 'italic 700' : 'italic 600'} ${on ? 38 : 34}px Georgia, serif`;
+      g.fillText(mode, 360, y);
+      g.font = '26px Georgia, serif';
+      g.globalAlpha = 0.7;
+      g.fillText(what, 360 + g.measureText(mode).width * 1.25 + 24, y);
+      g.globalAlpha = 1;
+      if (on) g.fillRect(360, y + 8, 220, 3);
+    });
+    g.textAlign = 'center';
+    g.font = 'italic 28px Georgia, serif';
+    if (this.menuNews) g.fillText(this.menuNews, 512, 470);
+    g.font = '24px Georgia, serif';
+    g.globalAlpha = 0.7;
+    const daily = this.progress.dailyDay === dayNumber() ? 'Come back tomorrow for a new shadow.' : 'A new shadow wakes each day: press Daily.';
+    g.fillText(`${daily}  ·  Found ${this.progress.found.length}  ·  streak ${this.progress.streak}`, 512, 640);
+    g.globalAlpha = 1;
+    this.theater.inkTex.needsUpdate = true;
+  }
+
+  /** Party: the scoreboard between turns, and the winner at the end. */
+  private inkParty() {
+    const c = this.theater.ink;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    g.fillStyle = '#000';
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    const sc = this.party.scores;
+    const top = sc.length ? Math.max(...sc) : 0;
+    const winner = sc.indexOf(top);
+    g.font = 'italic 600 60px Georgia, serif';
+    g.fillText(this.party.done ? `Player ${winner + 1} wins!` : sc.length ? 'Pass the headset' : 'Shadow Party', 512, 90);
+    g.font = '30px Georgia, serif';
+    const lines = this.party.done
+      ? ['The best runner of the night. Press Done to play again.']
+      : sc.length
+        ? [`Player ${sc.length + 1}: put on the headset and press Next player.`, 'Or press Winner to finish now.']
+        : ['Take turns: each player runs one Quick Chase.', 'Up to four players. The best score wins.', 'Player 1: press Start.'];
+    lines.forEach((t, i) => g.fillText(t, 512, 142 + i * 40));
+    sc.forEach((v, i) => {
+      const y = 330 + i * 56;
+      const win = this.party.done && i === winner;
+      g.font = `${win ? '700' : '600'} 38px Georgia, serif`;
+      g.textAlign = 'right';
+      g.fillText(`Player ${i + 1}`, 470, y);
+      g.textAlign = 'left';
+      g.fillText(`${v.toLocaleString('en-US')}${win ? '  ★' : ''}`, 520, y);
+    });
+    g.textAlign = 'center';
+    this.theater.inkTex.needsUpdate = true;
+  }
+
   private buildFreeCands() {
     const found = new Set(this.progress.found);
     const levels = LEVELS.filter((l) => found.has(l.id));
@@ -1611,7 +1851,7 @@ export class GameSystem extends createSystem({}) {
       },
       state: () => ({
         state: this.state,
-        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.state === 'battle' ? 'battle' : this.state === 'chase' ? 'chase' : this.level.id,
+        level: this.state === 'puzzle' ? `puzzle-${PUZZLES[this.progress.puzzle]?.id}` : this.state === 'battle' || this.state === 'chase' || this.state === 'mirror' || this.state === 'party' ? this.state : this.level.id,
         battle: this.state === 'battle' ? this.battleScene.info : null,
         chase: this.state === 'chase' ? this.chaseScene.info : null,
         puzzleCount: this.puzzleCount,

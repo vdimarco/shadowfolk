@@ -135,6 +135,58 @@ const { chromium } = require('playwright');
     await waitState((s) => s.state === 'free', 90000);
     await p.screenshot({ path: `${outDir}/free.png` });
     console.log('free play: bird woke, back in free play');
+    // the play menu: Done leads to it; a held shape picks a mode
+    const fistPose = [{ hand: 'right', pos: [0.06, -0.22, -0.42], thumb: { curl: 0.6, opp: 0.6 }, index: { curl: 0.95 }, middle: { curl: 0.95 }, ring: { curl: 0.95 }, pinky: { curl: 0.95 } }];
+    const choose = async (id, state) => {
+      await p.evaluate(() => window.__shadowfolk.setPoses(null));
+      await waitState((s) => s.state === 'finale', 20000);
+      await p.waitForTimeout(800);
+      await p.evaluate((id) => window.__shadowfolk.setPoses(window.__shadowfolk.posesFor(id)), id);
+      const s = await waitState((s) => s.state === state, 30000);
+      await p.evaluate(() => window.__shadowfolk.setPoses(null));
+      return s;
+    };
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'finale', 10000);
+    await p.screenshot({ path: `${outDir}/menu.png` });
+    // the dog: a Quick Chase; Stop ends it with a score on the menu
+    const q = await choose('dog', 'chase');
+    if (!q.chase || q.chase.mode !== 'quick') throw new Error('dog did not start a Quick Chase: ' + JSON.stringify(q.chase));
+    await waitState((s) => s.chase && s.chase.state === 'run', 20000);
+    await p.screenshot({ path: `${outDir}/quick.png` });
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'finale', 10000);
+    console.log('menu: dog -> Quick Chase -> stopped -> menu');
+    // the starfish: Shadow Mirror; a fist changes the magic
+    await choose('moth', 'mirror');
+    await p.evaluate((f) => window.__shadowfolk.setPoses(window.__shadowfolk.posesFor('hare')), null);
+    await p.waitForTimeout(1500);
+    await p.evaluate((f) => window.__shadowfolk.setPoses(f), fistPose);
+    await p.waitForTimeout(1500);
+    await p.evaluate(() => window.__shadowfolk.setPoses(window.__shadowfolk.posesFor('bird')));
+    await p.waitForTimeout(1500);
+    await p.screenshot({ path: `${outDir}/mirror.png` });
+    const notes = (await p.evaluate(() => window.__shadowfolk.musicLog())).length;
+    if (notes < 2) throw new Error('the mirror played no music');
+    await p.evaluate(() => window.__shadowfolk.setPoses(null));
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'finale', 10000);
+    console.log(`menu: starfish -> Shadow Mirror (${notes} notes so far) -> menu`);
+    // the bird: a party; one round, then crown the winner
+    await choose('bird', 'party');
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'chase', 10000);
+    await p.waitForTimeout(3000);
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'party', 10000);
+    await p.evaluate(() => window.__shadowfolk.press('book'));
+    await p.waitForTimeout(800);
+    await p.screenshot({ path: `${outDir}/party.png` });
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'finale', 10000);
+    console.log('menu: bird -> Party -> one round -> winner -> menu');
+    await p.evaluate(() => window.__shadowfolk.press('next'));
+    await waitState((s) => s.state === 'free' || s.state === 'level', 10000);
     await p.evaluate(() => window.__shadowfolk.press('book'));
     await p.waitForTimeout(1500);
     await p.screenshot({ path: `${outDir}/book.png` });

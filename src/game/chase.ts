@@ -52,6 +52,10 @@ export const STAGES: Stage[] = [
   { name: 'The Last Run', line: 'The wolf is right behind you. Everything at once!', kinds: ['log', 'river', 'rock', 'bats', 'thorns', 'dark', 'gap'], count: 9, approach: 2.5, gap: 0.8 },
 ];
 
+/** Quick Chase: one endless stretch with every obstacle, faster and faster, for a minute. */
+export const QUICK: Stage = { name: 'Quick Chase', line: 'One minute. How far can you run?', kinds: ['log', 'river', 'rock', 'bats', 'thorns', 'dark', 'gap'], count: 999, approach: 3.0, gap: 0.6 };
+export const QUICK_SECONDS = 60;
+
 /** Where the runner is on the paper (wall meters). */
 export const HERO_X = -0.28;
 export const GROUND_Y = -0.3;
@@ -64,7 +68,10 @@ export const LEAD_MAX = 3;
 export type ChaseEvent =
   | { type: 'stage'; stage: number }
   | { type: 'spawn'; kind: ObstacleKind }
-  | { type: 'clear'; kind: ObstacleKind; early: number }
+  | { type: 'clear'; kind: ObstacleKind; early: number; points: number; mult: number }
+  | { type: 'stageDone'; stage: number; stars: number; full: boolean }
+  | { type: 'timeup' }
+  | { type: 'over' }
   | { type: 'miss'; kind: ObstacleKind; lead: number }
   | { type: 'pull' }
   | { type: 'caught' }
@@ -93,8 +100,21 @@ export interface Obstacle {
 
 export class Chase {
   stage = 0;
-  /** 'intro': the stage name shows; 'run'; 'caught': the wolf has you, the stage restarts; 'won': you escaped. */
-  state: 'intro' | 'run' | 'caught' | 'won' = 'intro';
+  /**
+   * 'intro': the stage name shows; 'run'; 'caught': the wolf has you, the stage
+   * restarts; 'won': you escaped (Quick Chase: the minute is up); 'over': Quick
+   * Chase only, the wolf caught you and the run ends.
+   */
+  state: 'intro' | 'run' | 'caught' | 'won' | 'over' = 'intro';
+  /** Points: each clear scores more the earlier it is, times the combo multiplier. */
+  score = 0;
+  /** Stars per finished stage (3 = no misses, a full combo). */
+  readonly stars: number[] = [];
+  /** Quick Chase: seconds of running so far. */
+  runTime = 0;
+  private stageMisses = 0;
+  private spawned = 0;
+  private lastKind: ObstacleKind | null = null;
   stateTime = 0;
   /** Steps ahead of the wolf (0 = caught). */
   lead = LEAD_MAX;
@@ -121,13 +141,18 @@ export class Chase {
   constructor(
     readonly gentle = false,
     seed = 3,
+    readonly mode: 'story' | 'quick' = 'story',
   ) {
     this.seed = seed;
     this.startStage(0);
   }
 
-  get info() {
-    return STAGES[this.stage];
+  get info(): Stage {
+    return this.mode === 'quick' ? QUICK : STAGES[this.stage];
+  }
+  /** The combo multiplier: x1, then one more for every three clears in a row, up to x4. */
+  get mult() {
+    return 1 + Math.min(3, Math.floor(this.streak / 3));
   }
   /** 0..1: time left before the current obstacle hits. */
   get timeLeft() {
@@ -162,6 +187,13 @@ export class Chase {
     this.wait = 0;
     this.hold = 0;
     this.lead = (this.gentle ? LEAD_MAX + 2 : LEAD_MAX) + Math.min(this.retries, 2);
+    this.stageMisses = 0;
+    if (this.mode === 'quick') {
+      this.left = QUICK.count;
+      this.order = [];
+      this.events.push({ type: 'stage', stage: i });
+      return;
+    }
     // a shuffled order that uses every kind of the stage before repeating
     const kinds = STAGES[i].kinds;
     this.order = [];
@@ -185,10 +217,12 @@ export class Chase {
    */
   step(dt: number, making: string | null) {
     this.stateTime += dt;
-    const st = STAGES[this.stage];
+    const st = this.info;
+    if (this.mode === 'quick' && this.state === 'run') this.runTime += dt;
     const slow = (this.gentle ? 1.4 : 1) * (1 + 0.12 * Math.min(this.retries, 3));
     // the paper scrolls faster as the stages go on, and stops when caught
-    const want = this.state === 'caught' ? 0 : this.state === 'won' ? 0.15 : 0.32 / (st.approach / 4.2);
+    const approachNow = this.obstacle?.approach ?? st.approach;
+    const want = this.state === 'caught' || this.state === 'over' ? 0 : this.state === 'won' ? 0.15 : 0.32 / (approachNow / 4.2);
     this.speed += (want - this.speed) * Math.min(1, dt * 3);
     this.distance += this.speed * dt;
     this.stepParticles(dt);
@@ -205,7 +239,15 @@ export class Chase {
       if (this.stateTime > 3.2) this.startStage(this.stage);
       return;
     }
-    if (this.state === 'won') return;
+    if (this.state === 'won' || this.state === 'over') return;
+    // Quick Chase: the minute is up once the obstacle in play is done
+    if (this.mode === 'quick' && this.runTime >= QUICK_SECONDS && (!this.obstacle || this.obstacle.result)) {
+      this.state = 'won';
+      this.stateTime = 0;
+      this.obstacle = null;
+      this.events.push({ type: 'timeup' });
+      return;
+    }
 
     const o = this.obstacle;
     if (o) {
@@ -220,7 +262,11 @@ export class Chase {
           this.cleared++;
           this.streak++;
           this.best = Math.max(this.best, this.streak);
-          this.events.push({ type: 'clear', kind: o.kind, early: 1 - o.t / o.approach });
+          const early = 1 - o.t / o.approach;
+          const mult = this.mult;
+          const points = Math.round((100 + 200 * early) * mult);
+          this.score += points;
+          this.events.push({ type: 'clear', kind: o.kind, early, points, mult });
           this.burst(this.obstacleX, GROUND_Y + 0.06, 14, true);
           // three in a row: you pull a step ahead
           if (this.streak % 3 === 0 && this.lead < (this.gentle ? LEAD_MAX + 2 : LEAD_MAX) + Math.min(this.retries, 2)) {
@@ -232,11 +278,18 @@ export class Chase {
           o.since = 0;
           this.hold = 0;
           this.missed++;
+          this.stageMisses++;
           this.streak = 0;
           this.lead--;
           this.events.push({ type: 'miss', kind: o.kind, lead: this.lead });
           this.burst(HERO_X + 0.06, GROUND_Y + 0.05, 10, false);
           if (this.lead <= 0) {
+            if (this.mode === 'quick') {
+              this.state = 'over';
+              this.stateTime = 0;
+              this.events.push({ type: 'over' });
+              return;
+            }
             this.retries++;
             this.state = 'caught';
             this.stateTime = 0;
@@ -258,6 +311,9 @@ export class Chase {
     this.wait -= dt;
     if (this.wait > 0) return;
     if (this.left <= 0) {
+      const stars = this.stageMisses === 0 ? 3 : this.stageMisses === 1 ? 2 : 1;
+      this.stars.push(stars);
+      this.events.push({ type: 'stageDone', stage: this.stage, stars, full: this.stageMisses === 0 });
       if (this.stage + 1 < STAGES.length) this.startStage(this.stage + 1);
       else {
         this.state = 'won';
@@ -266,8 +322,17 @@ export class Chase {
       }
       return;
     }
-    const kind = this.order[STAGES[this.stage].count - this.left];
-    this.obstacle = { kind, t: 0, approach: st.approach * slow, result: null, since: 0 };
+    let kind: ObstacleKind;
+    let approach = st.approach * slow;
+    if (this.mode === 'quick') {
+      // any obstacle but the last one, each a little faster than the one before
+      const kinds = QUICK.kinds.filter((k) => k !== this.lastKind);
+      kind = kinds[Math.floor(this.rnd() * kinds.length)];
+      approach = Math.max(1.5, QUICK.approach * Math.pow(0.965, this.spawned)) * (this.gentle ? 1.4 : 1);
+    } else kind = this.order[STAGES[this.stage].count - this.left];
+    this.spawned++;
+    this.lastKind = kind;
+    this.obstacle = { kind, t: 0, approach, result: null, since: 0 };
     this.hold = 0;
     this.events.push({ type: 'spawn', kind });
   }
