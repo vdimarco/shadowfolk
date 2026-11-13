@@ -24,7 +24,7 @@ CAPTIONS = {
     2: ['Hand shadows: the oldest game you play with your hands.', 'Shadowfolk brings them to Meta Quest.'],
     3: ['Hand shadows: the oldest game you play with your hands.',
         'In Shadowfolk, every shadow you make comes alive.',
-        'Wake every creature. Then face the Ink Wolf.'],
+        'Wake every creature. Then run from the Ink Wolf.'],
 }[len(shots)]
 # the three-shot opening is AI animation of real game frames: say so on screen
 NOTE = 'Opening animated with AI from game frames. Gameplay follows.' if len(shots) == 3 else ''

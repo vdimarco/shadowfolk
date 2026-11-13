@@ -578,12 +578,8 @@ try {
   await move([REST.right], 0.8);
   // the fireflies: skipped off camera to keep the video short
   await skip('fireflies', 'puzzle-pearls');
-  // the pearls: spread fingers are a sieve
-  say('Spread fingers are a sieve: rain falls through, and pearls roll to the shell.');
-  console.log('pearls', JSON.stringify(await follow(pearlsPose, isDone('pearls'), 40)));
-  await hold(1.2);
-  await move([REST.right], 0.6);
-  // the frozen cloud: off camera
+  // the pearls and the frozen cloud: off camera, to keep the video under three minutes
+  await skip('pearls', 'puzzle-ice');
   await skip('ice', 'puzzle-garden');
   // the moon garden: every tool at once
   say('The Moon Garden: a sieve over a slide sorts pearls from rain.');
